@@ -2,20 +2,12 @@ import React, { useState } from 'react';
 import {
   Car,
   Search,
-  Camera,
   AlertTriangle,
   CheckCircle2,
-  Shield,
-  Clock,
-  Compass,
   FileText,
-  Eye,
   Lock,
   ArrowRight,
-  ExternalLink,
-  MapPin,
   Download,
-  Info,
 } from 'lucide-react';
 import { VehicleAlprAuditResult, SubscriptionTierType } from '../types';
 import { PRESET_PLATES, generateVehicleAudit } from '../data/mockData';
@@ -47,20 +39,27 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
     generateVehicleAudit('7XYZ892', 'CA')
   );
   const [isAuditing, setIsAuditing] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const handleAudit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputPlate.trim()) return;
+    const cleaned = inputPlate.trim().replace(/[^A-Z0-9-]/gi, '');
+    if (cleaned.length < 2 || cleaned.length > 10) {
+      setValidationError('Enter a valid 2 to 10-character license plate (letters, numbers, or hyphens).');
+      return;
+    }
 
+    setValidationError(null);
     setIsAuditing(true);
     setTimeout(() => {
-      const result = generateVehicleAudit(inputPlate, selectedState);
+      const result = generateVehicleAudit(cleaned, selectedState);
       setActiveAudit(result);
       setIsAuditing(false);
     }, 400);
   };
 
   const handleSelectPreset = (presetPlate: string, presetState: string) => {
+    setValidationError(null);
     setInputPlate(presetPlate);
     setSelectedState(presetState);
     setIsAuditing(true);
@@ -98,7 +97,10 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             <input
               type="text"
               value={inputPlate}
-              onChange={(e) => setInputPlate(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                setInputPlate(e.target.value.toUpperCase());
+                if (validationError) setValidationError(null);
+              }}
               placeholder="Enter License Plate (e.g. 7XYZ892)"
               className="w-full rounded-lg border border-slate-700 bg-[#080c14] py-2.5 pl-10 pr-4 text-sm font-mono tracking-wider font-bold text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 uppercase"
             />
@@ -128,6 +130,9 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             <span>{isAuditing ? 'Scanning ALPR Gateways...' : 'Audit License Plate'}</span>
           </button>
         </form>
+        {validationError && (
+          <p className="mt-2 text-xs text-rose-400 font-medium">{validationError}</p>
+        )}
 
         {/* Preset Case Studies */}
         <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
@@ -228,11 +233,15 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => onOpenExport({ type: 'alpr', content: activeAudit })}
+              onClick={() =>
+                isFullAuditUnlocked
+                  ? onOpenExport({ type: 'alpr', content: activeAudit })
+                  : onOpenPricing()
+              }
               className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer"
             >
-              <Download className="h-4 w-4" />
-              <span>Export Audit</span>
+              {isFullAuditUnlocked ? <Download className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              <span>{isFullAuditUnlocked ? 'Export Audit' : 'Unlock Export'}</span>
             </button>
           </div>
         </div>

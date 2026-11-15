@@ -2,18 +2,10 @@ import React, { useState } from 'react';
 import {
   Search,
   Phone,
-  Radio,
   Lock,
   Unlock,
-  AlertTriangle,
-  CheckCircle2,
   Download,
-  Share2,
-  Building,
-  User,
   Mail,
-  MapPin,
-  Clock,
   ArrowRight,
   ShieldAlert,
 } from 'lucide-react';
@@ -36,11 +28,17 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
     generatePhoneLookup('+1 (415) 890-4421')
   );
   const [isSearching, setIsSearching] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputNumber.trim()) return;
+    const digits = inputNumber.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) {
+      setValidationError('Enter a valid 7 to 15-digit phone number (e.g. +1 415-890-4421).');
+      return;
+    }
 
+    setValidationError(null);
     setIsSearching(true);
     setTimeout(() => {
       const result = generatePhoneLookup(inputNumber);
@@ -50,6 +48,7 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
   };
 
   const handleSelectPreset = (presetNumber: string) => {
+    setValidationError(null);
     setInputNumber(presetNumber);
     setIsSearching(true);
     setTimeout(() => {
@@ -90,7 +89,10 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
             <input
               type="text"
               value={inputNumber}
-              onChange={(e) => setInputNumber(e.target.value)}
+              onChange={(e) => {
+                setInputNumber(e.target.value);
+                if (validationError) setValidationError(null);
+              }}
               placeholder="Enter phone number (e.g. +1 415-890-4421)"
               className="w-full rounded-lg border border-slate-700 bg-[#080c14] py-2.5 pl-10 pr-4 text-sm font-mono text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
             />
@@ -104,6 +106,9 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
             <span>{isSearching ? 'Querying Telecom Routing...' : 'Trace Number'}</span>
           </button>
         </form>
+        {validationError && (
+          <p className="mt-2 text-xs text-rose-400 font-medium">{validationError}</p>
+        )}
 
         {/* Quick Presets for Instant Testing */}
         <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">

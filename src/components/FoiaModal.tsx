@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Download, Shield, FileText } from 'lucide-react';
+import { X, Copy, Check, Download, FileText } from 'lucide-react';
 import { VehicleAlprAuditResult } from '../types';
 
 interface FoiaModalProps {
@@ -63,10 +63,14 @@ Vehicle Registered Owner / Representative
 Contact Phone: Available on File
 `;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(letterText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(letterText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const handleDownload = () => {

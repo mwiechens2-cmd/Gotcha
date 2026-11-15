@@ -8,7 +8,6 @@ import { FoiaModal } from './components/FoiaModal';
 import { ExportModal } from './components/ExportModal';
 import { SubscriptionTierType, VehicleAlprAuditResult, PhoneLookupResult } from './types';
 import { generateVehicleAudit } from './data/mockData';
-import { Shield, Lock, FileText, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'phone' | 'alpr' | 'inquiry' | 'foia'>('phone');
@@ -64,8 +63,6 @@ export default function App() {
 
         {activeTab === 'inquiry' && (
           <SurveillanceInquiryView
-            currentTier={currentTier}
-            onOpenPricing={() => setIsPricingOpen(true)}
             onOpenFoia={() => handleOpenFoia()}
           />
         )}

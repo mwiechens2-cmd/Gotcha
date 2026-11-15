@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, Download, Printer, Shield } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, Copy, Check, Download, Printer } from 'lucide-react';
 import { PhoneLookupResult, VehicleAlprAuditResult } from '../types';
 
 interface ExportModalProps {
@@ -19,10 +19,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [exportFormat, setExportFormat] = useState<'text' | 'json'>('text');
 
-  if (!isOpen || !exportData) return null;
+  const { timestamp, reportId } = useMemo(() => {
+    return {
+      timestamp: new Date().toISOString(),
+      reportId: `RPT-${Math.floor(100000 + Math.random() * 900000)}`,
+    };
+  }, [exportData, isOpen]);
 
-  const timestamp = new Date().toISOString();
-  const reportId = `RPT-${Math.floor(100000 + Math.random() * 900000)}`;
+  if (!isOpen || !exportData) return null;
 
   const generateReportText = () => {
     if (exportData.type === 'phone') {
@@ -128,10 +132,14 @@ END OF AUDIT - GENERATED VIA VIGILALPR / TRACEID PLATFORM
       ? JSON.stringify(exportData.content, null, 2)
       : generateReportText();
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(displayText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(displayText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const handleDownload = () => {

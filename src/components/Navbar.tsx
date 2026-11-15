@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Sparkles, CreditCard } from 'lucide-react';
+import { Shield, CreditCard } from 'lucide-react';
 import { SubscriptionTierType } from '../types';
 
 interface NavbarProps {

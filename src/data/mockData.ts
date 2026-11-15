@@ -602,9 +602,10 @@ export function generatePhoneLookup(rawInput: string): PhoneLookupResult {
   const spamScore = (seed * 17) % 96;
   const isHighRisk = chosenCarrier.line === 'VoIP' || spamScore > 65;
 
-  const areaCode = digits.slice(-10, -7) || '555';
-  const prefix = digits.slice(-7, -4) || '123';
-  const lineNum = digits.slice(-4) || '4567';
+  const paddedDigits = digits.padStart(10, '5');
+  const areaCode = paddedDigits.slice(-10, -7);
+  const prefix = paddedDigits.slice(-7, -4);
+  const lineNum = paddedDigits.slice(-4);
 
   return {
     phoneNumber: `+1${areaCode}${prefix}${lineNum}`,
@@ -650,7 +651,7 @@ export function generatePhoneLookup(rawInput: string): PhoneLookupResult {
       digitalFootprint: [
         { platform: 'Telecommunications Carrier Registry', profileHandle: `MSISDN-1${areaCode}${prefix}${lineNum}`, verified: true },
       ],
-      altPhoneNumbers: [`+1 (${areaCode}) ${prefix}-${String(parseInt(lineNum, 10) + 1).padStart(4, '0')}`],
+      altPhoneNumbers: [`+1 (${areaCode}) ${prefix}-${String((parseInt(lineNum, 10) + 1) % 10000).padStart(4, '0')}`],
     },
   };
 }

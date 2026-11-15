@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Check, ShieldCheck, Zap, Sparkles } from 'lucide-react';
-import { SubscriptionPlan, SubscriptionTierType } from '../types';
+import { X, Check, ShieldCheck } from 'lucide-react';
+import { SubscriptionTierType } from '../types';
 import { SUBSCRIPTION_PLANS } from '../data/mockData';
 
 interface PricingModalProps {

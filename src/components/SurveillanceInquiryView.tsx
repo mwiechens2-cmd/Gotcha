@@ -1,23 +1,11 @@
 import React, { useState } from 'react';
 import {
-  Eye,
-  AlertTriangle,
-  CheckCircle2,
-  ShieldCheck,
-  Building,
   FileCheck,
   Search,
-  Filter,
-  Download,
-  Info,
-  Calendar,
-  Lock,
 } from 'lucide-react';
-import { AlprQueryAuditRecord, SubscriptionTierType } from '../types';
+import { AlprQueryAuditRecord } from '../types';
 
 interface SurveillanceInquiryViewProps {
-  currentTier: SubscriptionTierType;
-  onOpenPricing: () => void;
   onOpenFoia: () => void;
 }
 
@@ -69,8 +57,6 @@ const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
 ];
 
 export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = ({
-  currentTier,
-  onOpenPricing,
   onOpenFoia,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
@@ -206,44 +192,52 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-sans">
-              {filteredInquiries.map((inq) => (
-                <tr key={inq.queryId} className="hover:bg-slate-900/40 transition-colors">
-                  <td className="py-3.5 px-4 font-mono text-slate-200 whitespace-nowrap">
-                    <span className="font-semibold text-cyan-400 block">{inq.queryId}</span>
-                    <span className="text-[11px] text-slate-500 tabular-nums">
-                      {new Date(inq.timestamp).toLocaleString()}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="font-semibold text-white block">{inq.requestingAgency}</span>
-                    <span className="text-[11px] text-slate-400 font-mono">{inq.agencyType}</span>
-                  </td>
-                  <td className="py-3.5 px-4 max-w-sm">
-                    <p className="text-slate-300 leading-relaxed text-xs">{inq.queryReason}</p>
-                    {inq.searchRadiusMiles ? (
-                      <span className="text-[11px] text-slate-500 font-mono mt-0.5 block">
-                        Search Radius: {inq.searchRadiusMiles} miles
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-[11px] text-slate-300 whitespace-nowrap">
-                    {inq.officerBadgeOrCaseId}
-                  </td>
-                  <td className="py-3.5 px-4 whitespace-nowrap">
-                    <span
-                      className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
-                        inq.alertDisposition === 'Active Vehicle Canvass'
-                          ? 'border-amber-800/80 bg-amber-950/40 text-amber-300 font-semibold'
-                          : inq.alertDisposition === 'Hotlist Cross-Check Negative'
-                          ? 'border-emerald-800/80 bg-emerald-950/40 text-emerald-300'
-                          : 'border-slate-700 bg-slate-800/50 text-slate-300'
-                      }`}
-                    >
-                      {inq.alertDisposition}
-                    </span>
+              {filteredInquiries.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-10 px-4 text-center text-xs text-slate-400">
+                    No inquiry records match your current filter.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredInquiries.map((inq) => (
+                  <tr key={inq.queryId} className="hover:bg-slate-900/40 transition-colors">
+                    <td className="py-3.5 px-4 font-mono text-slate-200 whitespace-nowrap">
+                      <span className="font-semibold text-cyan-400 block">{inq.queryId}</span>
+                      <span className="text-[11px] text-slate-500 tabular-nums">
+                        {new Date(inq.timestamp).toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="font-semibold text-white block">{inq.requestingAgency}</span>
+                      <span className="text-[11px] text-slate-400 font-mono">{inq.agencyType}</span>
+                    </td>
+                    <td className="py-3.5 px-4 max-w-sm">
+                      <p className="text-slate-300 leading-relaxed text-xs">{inq.queryReason}</p>
+                      {inq.searchRadiusMiles ? (
+                        <span className="text-[11px] text-slate-500 font-mono mt-0.5 block">
+                          Search Radius: {inq.searchRadiusMiles} miles
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-[11px] text-slate-300 whitespace-nowrap">
+                      {inq.officerBadgeOrCaseId}
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <span
+                        className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                          inq.alertDisposition === 'Active Vehicle Canvass'
+                            ? 'border-amber-800/80 bg-amber-950/40 text-amber-300 font-semibold'
+                            : inq.alertDisposition === 'Hotlist Cross-Check Negative'
+                            ? 'border-emerald-800/80 bg-emerald-950/40 text-emerald-300'
+                            : 'border-slate-700 bg-slate-800/50 text-slate-300'
+                        }`}
+                      >
+                        {inq.alertDisposition}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
