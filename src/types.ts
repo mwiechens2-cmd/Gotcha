@@ -1,0 +1,131 @@
+export type SubscriptionTierType = 'explorer' | 'investigator' | 'enterprise';
+
+export interface SubscriptionPlan {
+  id: SubscriptionTierType;
+  name: string;
+  priceMonthly: number;
+  priceAnnual: number;
+  description: string;
+  popular?: boolean;
+  features: string[];
+  dossierAccess: boolean;
+  alprAuditDepth: 'summary' | 'full' | 'fleet';
+  exportEnabled: boolean;
+}
+
+export interface PhoneLookupResult {
+  phoneNumber: string;
+  formattedNational: string;
+  formattedInternational: string;
+  countryCode: string;
+  countryName: string;
+  carrier: {
+    name: string;
+    type: 'Tier-1 Wireless' | 'Regional Mobile' | 'VoIP / Cloud PBX' | 'Landline ILEC' | 'Toll-Free CLEC';
+    networkCode: string;
+    originalNetwork: string;
+    isPorted: boolean;
+    lastPortedDate?: string;
+  };
+  lineType: 'Mobile' | 'Landline' | 'VoIP' | 'Toll-Free' | 'Virtual / Burner';
+  riskAnalysis: {
+    spamScore: number; // 0 - 100
+    riskLevel: 'Low' | 'Moderate' | 'High' | 'Severe';
+    primaryFlag: string;
+    totalReports: number;
+    activityCategory: 'Nominal Consumer' | 'Commercial Business' | 'Telemarketing Robot' | 'Phishing / Impersonation' | 'Debt Collection';
+    lastActiveDate: string;
+  };
+  location: {
+    city: string;
+    state: string;
+    postalCode: string;
+    timeZone: string;
+    rateCenter: string;
+    coordinates: [number, number];
+  };
+  dossier?: {
+    subscriberName: string;
+    subscriberType: 'Individual' | 'Corporate' | 'Undisclosed / Prepaid';
+    addressHistory: Array<{
+      street: string;
+      cityState: string;
+      years: string;
+      isCurrent: boolean;
+    }>;
+    associatedEmails: string[];
+    breachExposures: Array<{
+      breachName: string;
+      year: number;
+      compromisedData: string[];
+    }>;
+    digitalFootprint: Array<{
+      platform: string;
+      profileHandle: string;
+      verified: boolean;
+    }>;
+    altPhoneNumbers: string[];
+  };
+}
+
+export type AlprQueryStatus = 'queried_active' | 'passive_scan_only' | 'hotlist_flagged';
+
+export interface AlprQueryAuditRecord {
+  queryId: string;
+  timestamp: string;
+  requestingAgency: string;
+  agencyType: 'Municipal Police' | 'County Sheriff' | 'State Highway Patrol' | 'HOA Security' | 'Commercial ALPR Aggregator';
+  queryReason: string;
+  searchRadiusMiles?: number;
+  officerBadgeOrCaseId: string;
+  matchedCriteria: string;
+  alertDisposition: 'Inquiry Logged' | 'Hotlist Cross-Check Negative' | 'Active Vehicle Canvass' | 'Traffic Corroboration';
+}
+
+export interface AlprCameraSighting {
+  id: string;
+  timestamp: string;
+  cameraId: string;
+  cameraName: string;
+  cameraType: 'Flock Falcon (Fixed)' | 'Flock Sentinel (HOA)' | 'Mobile Cruiser ALPR' | 'Highway Transit Pole';
+  municipalityAgency: string;
+  intersectionOrLocation: string;
+  coordinates: [number, number];
+  directionOfTravel: 'Northbound' | 'Southbound' | 'Eastbound' | 'Westbound';
+  laneNumber: number;
+  captureConfidence: number; // e.g. 99.2%
+  speedEstimateMph: number;
+  retentionDaysRemaining: number;
+  weatherLightCondition: 'Daylight / Clear' | 'Dusk / Low Light' | 'Night / IR Active';
+}
+
+export interface VehicleAlprAuditResult {
+  plateNumber: string;
+  state: string;
+  vehicleDetails: {
+    year: number;
+    make: string;
+    model: string;
+    color: string;
+    bodyStyle: string;
+    vinMasked: string;
+  };
+  auditSummary: {
+    overallStatus: AlprQueryStatus;
+    totalDetections30Days: number;
+    totalDetections90Days: number;
+    activeAgencyQueriesCount: number;
+    lastDetectedTimestamp: string;
+    lastDetectedLocation: string;
+    exposureScore: number; // 0 - 100
+    exposureLevel: 'Low Exposure' | 'Moderate Exposure' | 'Heavy Surveillance Corridor';
+    retentionPolicyStandard: string;
+  };
+  queryAuditLog: AlprQueryAuditRecord[];
+  cameraSightings: AlprCameraSighting[];
+  reciprocalAgencies: Array<{
+    agencyName: string;
+    jurisdiction: string;
+    dataShareScope: 'Full Real-Time Access' | 'Historical Search (30-day)' | 'Audit Log Only';
+  }>;
+}
