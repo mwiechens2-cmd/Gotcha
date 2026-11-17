@@ -8,12 +8,17 @@ import {
   Lock,
   ArrowRight,
   Download,
+  Globe,
 } from 'lucide-react';
 import { VehicleAlprAuditResult, SubscriptionTierType } from '../types';
 import { PRESET_PLATES, generateVehicleAudit } from '../data/mockData';
+import { fetchAlprWebIntel, WebLookupResponse } from '../utils/webLookup';
+import { WebIntelPanel } from './WebIntelPanel';
 
 interface AlprAuditViewProps {
   currentTier: SubscriptionTierType;
+  activeAudit: VehicleAlprAuditResult;
+  onAuditChange: (audit: VehicleAlprAuditResult) => void;
   onOpenPricing: () => void;
   onOpenFoia: (auditData: VehicleAlprAuditResult) => void;
   onOpenExport: (data: { type: 'alpr'; content: VehicleAlprAuditResult }) => void;
@@ -29,17 +34,21 @@ const US_STATES = [
 
 export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   currentTier,
+  activeAudit,
+  onAuditChange,
   onOpenPricing,
   onOpenFoia,
   onOpenExport,
 }) => {
-  const [inputPlate, setInputPlate] = useState('7XYZ892');
-  const [selectedState, setSelectedState] = useState('CA');
-  const [activeAudit, setActiveAudit] = useState<VehicleAlprAuditResult>(() =>
-    generateVehicleAudit('7XYZ892', 'CA')
-  );
+  const [inputPlate, setInputPlate] = useState(activeAudit.plateNumber);
+  const [selectedState, setSelectedState] = useState(activeAudit.state);
   const [isAuditing, setIsAuditing] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const [cityOrCounty, setCityOrCounty] = useState('');
+  const [webLoading, setWebLoading] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
+  const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
 
   const handleAudit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -50,29 +59,53 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
     }
 
     setValidationError(null);
+    setWebIntel(null);
+    setWebError(null);
     setIsAuditing(true);
     setTimeout(() => {
       const result = generateVehicleAudit(cleaned, selectedState);
-      setActiveAudit(result);
+      onAuditChange(result);
       setIsAuditing(false);
-    }, 400);
+    }, 300);
   };
 
   const handleSelectPreset = (presetPlate: string, presetState: string) => {
     setValidationError(null);
+    setWebIntel(null);
+    setWebError(null);
     setInputPlate(presetPlate);
     setSelectedState(presetState);
     setIsAuditing(true);
     setTimeout(() => {
       const result = generateVehicleAudit(presetPlate, presetState);
-      setActiveAudit(result);
+      onAuditChange(result);
       setIsAuditing(false);
-    }, 250);
+    }, 200);
+  };
+
+  const runLiveWebAlprSearch = async () => {
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const response = await fetchAlprWebIntel({
+        state: activeAudit.state,
+        cityOrCounty: cityOrCounty.trim() || undefined,
+      });
+      setWebIntel(response);
+    } catch (err) {
+      setWebError(err instanceof Error ? err.message : 'Unable to fetch ALPR web disclosures.');
+    } finally {
+      setWebLoading(false);
+    }
   };
 
   const isFullAuditUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
-
   const hasBeenLookedInto = activeAudit.auditSummary.overallStatus === 'queried_active';
+
+  const visibleSightings = isFullAuditUnlocked
+    ? activeAudit.cameraSightings
+    : activeAudit.cameraSightings.slice(0, 1);
+  const hiddenSightingsCount = Math.max(0, activeAudit.cameraSightings.length - visibleSightings.length);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -106,7 +139,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             />
           </div>
 
-          <div className="w-full sm:w-36 shrink-0">
+          <div className="w-full sm:w-40 shrink-0">
             <select
               value={selectedState}
               onChange={(e) => setSelectedState(e.target.value)}
@@ -212,7 +245,10 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               </p>
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1 font-mono">
-                <span>Vehicle: {activeAudit.vehicleDetails.year} {activeAudit.vehicleDetails.make} {activeAudit.vehicleDetails.model} ({activeAudit.vehicleDetails.color})</span>
+                <span>
+                  Vehicle: {activeAudit.vehicleDetails.year} {activeAudit.vehicleDetails.make}{' '}
+                  {activeAudit.vehicleDetails.model} ({activeAudit.vehicleDetails.color})
+                </span>
                 <span aria-hidden="true">·</span>
                 <span>VIN: {activeAudit.vehicleDetails.vinMasked}</span>
                 <span aria-hidden="true">·</span>
@@ -249,7 +285,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
 
       {/* Main Grid: Query Details & Camera Sightings */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Query Audit Logs & Retention Analysis (6 Cols) */}
+        {/* Left Column: Query Audit Logs, Retention Analysis & Live Web Intel (6 Cols) */}
         <div className="lg:col-span-6 space-y-6">
           {/* Query Audit Log */}
           <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
@@ -286,7 +322,8 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                       {log.requestingAgency}
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono">
-                      Agency Type: {log.agencyType} · {log.officerBadgeOrCaseId}
+                      Agency Type: {log.agencyType} ·{' '}
+                      {isFullAuditUnlocked ? log.officerBadgeOrCaseId : '[Badge/Case Redacted on Explorer]'}
                     </span>
                   </div>
 
@@ -367,6 +404,46 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Live Web Flock & ALPR Jurisdiction Disclosures */}
+          <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
+            <div className="border-b border-slate-800/80 pb-3">
+              <h3 className="text-base font-semibold text-white">
+                Live Web Flock & ALPR Transparency Lookup
+              </h3>
+              <span className="text-xs text-slate-400 mt-0.5 block">
+                Search public web disclosures for Flock Safety portals, municipal camera contracts, and state ALPR laws in {activeAudit.state}.
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={cityOrCounty}
+                onChange={(e) => setCityOrCounty(e.target.value)}
+                placeholder={`Optional city or county in ${activeAudit.state} (e.g. Austin, Marietta)`}
+                className="flex-1 rounded-lg border border-slate-700 bg-[#080c14] py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={runLiveWebAlprSearch}
+                disabled={webLoading}
+                className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-3.5 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Globe className="h-3.5 w-3.5" />
+                <span>{webLoading ? 'Searching Web...' : 'Search Web Records'}</span>
+              </button>
+            </div>
+
+            <WebIntelPanel
+              title={`Public ALPR & Flock Disclosures (${cityOrCounty.trim() ? `${cityOrCounty.trim()}, ` : ''}${activeAudit.state})`}
+              isLoading={webLoading}
+              error={webError}
+              data={webIntel}
+              onRetry={runLiveWebAlprSearch}
+              emptyPrompt={`Run a live web search to inspect published Flock Safety transparency portals and ALPR policies for ${activeAudit.state}.`}
+            />
+          </div>
         </div>
 
         {/* Right Column: Camera Sighting Logs & Node Details (6 Cols) */}
@@ -382,13 +459,13 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                 </span>
               </div>
               <span className="text-xs font-mono text-slate-400 tabular-nums">
-                {activeAudit.cameraSightings.length} Logged Node(s)
+                {visibleSightings.length} of {activeAudit.cameraSightings.length} Node(s)
               </span>
             </div>
 
             {/* Sighting Timeline Cards */}
             <div className="space-y-3.5">
-              {activeAudit.cameraSightings.map((sighting) => (
+              {visibleSightings.map((sighting) => (
                 <div
                   key={sighting.id}
                   className="rounded-lg border border-slate-800/90 bg-[#080c14]/70 p-4 space-y-2 text-xs"
@@ -439,12 +516,14 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white">
-                    Historical 90-Day Audit Log Restricted
+                    {hiddenSightingsCount > 0
+                      ? `${hiddenSightingsCount} Additional Camera Sightings & Full Audit Locked`
+                      : 'Historical 90-Day Audit Log Restricted'}
                   </h4>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                    The free Explorer tier previews recent node captures. Upgrade to Investigator Pro
-                    to unlock historical route corridor tracking, detailed officer badge identifiers, and
-                    full FOIA expungement packet export.
+                    The free Explorer tier previews only the latest capture and redacts officer badge IDs.
+                    Upgrade to Investigator Pro to unlock all camera sightings, unredacted badge identifiers,
+                    and full FOIA packet exports.
                   </p>
                 </div>
                 <button

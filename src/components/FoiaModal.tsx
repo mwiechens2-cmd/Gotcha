@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Download, FileText } from 'lucide-react';
+import { X, Copy, Check, Download, FileText, Globe } from 'lucide-react';
 import { VehicleAlprAuditResult } from '../types';
+import { fetchFoiaPortalWeb, WebLookupResponse } from '../utils/webLookup';
+import { WebIntelPanel } from './WebIntelPanel';
 
 interface FoiaModalProps {
   isOpen: boolean;
@@ -15,12 +17,18 @@ export const FoiaModal: React.FC<FoiaModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [requesterName, setRequesterName] = useState('Citizen Requester');
+  const [agencyQuery, setAgencyQuery] = useState('');
+  const [webLoading, setWebLoading] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
+  const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
 
   if (!isOpen) return null;
 
   const plate = auditData?.plateNumber || '7XYZ892';
   const state = auditData?.state || 'CA';
-  const agencies = auditData?.reciprocalAgencies.map((a) => a.agencyName).join(', ') || 'Local Municipal Police Department';
+  const agencies =
+    auditData?.reciprocalAgencies.map((a) => a.agencyName).join(', ') ||
+    'Local Municipal Police Department';
 
   const getStateStatute = (st: string) => {
     switch (st) {
@@ -32,6 +40,16 @@ export const FoiaModal: React.FC<FoiaModalProps> = ({
         return 'Florida Sunshine Law (Florida Statutes Chapter 119) & Section 316.0777';
       case 'GA':
         return 'Georgia Open Records Act (O.C.G.A. § 50-18-70 et seq.)';
+      case 'NY':
+        return 'New York Freedom of Information Law (FOIL, Public Officers Law Article 6)';
+      case 'IL':
+        return 'Illinois Freedom of Information Act (5 ILCS 140/)';
+      case 'WA':
+        return 'Washington Public Records Act (RCW 42.56)';
+      case 'CO':
+        return 'Colorado Open Records Act (CORA, C.R.S. § 24-72-201 et seq.)';
+      case 'AZ':
+        return 'Arizona Public Records Law (A.R.S. § 39-121 et seq.)';
       default:
         return `${st} Public Records & Open Records Statutes, along with municipal ALPR usage guidelines`;
     }
@@ -69,7 +87,21 @@ Contact Phone: Available on File
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setCopied(false);
+      try {
+        const el = document.createElement('textarea');
+        el.value = letterText;
+        el.setAttribute('readonly', '');
+        el.style.position = 'fixed';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        setCopied(false);
+      }
     }
   };
 
@@ -81,6 +113,24 @@ Contact Phone: Available on File
     link.download = `ALPR_Public_Records_Request_${plate}_${state}.txt`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleFindPortal = async () => {
+    const targetAgency =
+      agencyQuery.trim() || auditData?.reciprocalAgencies[0]?.agencyName || `${state} Police Records`;
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const response = await fetchFoiaPortalWeb({
+        agencyOrCity: targetAgency,
+        state,
+      });
+      setWebIntel(response);
+    } catch (err) {
+      setWebError(err instanceof Error ? err.message : 'Unable to locate agency FOIA portal.');
+    } finally {
+      setWebLoading(false);
+    }
   };
 
   return (
@@ -136,16 +186,41 @@ Contact Phone: Available on File
             <textarea
               readOnly
               value={letterText}
-              rows={12}
+              rows={10}
               className="w-full rounded-lg border border-slate-800 bg-[#080c14] p-3 text-xs font-mono text-slate-300 focus:outline-none leading-relaxed select-all"
             />
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-xs space-y-1 text-slate-400">
-            <span className="font-semibold text-slate-200 block">How to submit this letter:</span>
-            <p>1. Copy the text or download the `.txt` letter.</p>
-            <p>2. Locate your city or county Police Department Public Records portal or City Clerk FOIA email address.</p>
-            <p>3. Submit as an open public records request; most state agencies are legally required to reply within 10 to 14 business days.</p>
+          {/* Live Web Portal Lookup */}
+          <div className="rounded-lg border border-slate-800 bg-[#080c14]/70 p-3.5 space-y-2.5">
+            <span className="text-xs font-semibold text-slate-200 block">
+              Find Official Agency FOIA Portal via Web Search
+            </span>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={agencyQuery}
+                onChange={(e) => setAgencyQuery(e.target.value)}
+                placeholder={auditData?.reciprocalAgencies[0]?.agencyName || `City or Police Dept in ${state}`}
+                className="flex-1 rounded-lg border border-slate-700 bg-[#0d1322] py-1.5 px-3 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleFindPortal}
+                disabled={webLoading}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Globe className="h-3.5 w-3.5" />
+                <span>{webLoading ? 'Searching...' : 'Find FOIA Portal'}</span>
+              </button>
+            </div>
+            <WebIntelPanel
+              title="Agency Public Records Portal Lookup"
+              isLoading={webLoading}
+              error={webError}
+              data={webIntel}
+              onRetry={handleFindPortal}
+            />
           </div>
         </div>
 

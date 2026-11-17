@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Check, ShieldCheck } from 'lucide-react';
 import { SubscriptionTierType } from '../types';
 import { SUBSCRIPTION_PLANS } from '../data/mockData';
@@ -18,16 +18,24 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 }) => {
   const [isAnnual, setIsAnnual] = useState(false);
   const [justUpgraded, setJustUpgraded] = useState<SubscriptionTierType | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   if (!isOpen) return null;
 
   const handleActivate = (tierId: SubscriptionTierType) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
     onSelectTier(tierId);
     setJustUpgraded(tierId);
-    setTimeout(() => {
+    timerRef.current = setTimeout(() => {
       setJustUpgraded(null);
       onClose();
-    }, 1200);
+    }, 900);
   };
 
   return (

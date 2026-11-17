@@ -8,9 +8,12 @@ import {
   Mail,
   ArrowRight,
   ShieldAlert,
+  Globe,
 } from 'lucide-react';
 import { PhoneLookupResult, SubscriptionTierType } from '../types';
 import { PRESET_PHONES, generatePhoneLookup } from '../data/mockData';
+import { fetchPhoneWebOsint, WebLookupResponse } from '../utils/webLookup';
+import { WebIntelPanel } from './WebIntelPanel';
 
 interface PhoneTraceViewProps {
   currentTier: SubscriptionTierType;
@@ -29,6 +32,27 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
   );
   const [isSearching, setIsSearching] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [webLoading, setWebLoading] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
+  const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
+
+  const runLiveWebSearch = async (target: PhoneLookupResult) => {
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const response = await fetchPhoneWebOsint({
+        phoneNumber: target.phoneNumber,
+        formattedNational: target.formattedNational,
+        carrierName: target.carrier.name,
+        locationHint: `${target.location.city}, ${target.location.state}`,
+      });
+      setWebIntel(response);
+    } catch (err) {
+      setWebError(err instanceof Error ? err.message : 'Unable to fetch web OSINT records.');
+    } finally {
+      setWebLoading(false);
+    }
+  };
 
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -39,23 +63,27 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
     }
 
     setValidationError(null);
+    setWebIntel(null);
+    setWebError(null);
     setIsSearching(true);
     setTimeout(() => {
       const result = generatePhoneLookup(inputNumber);
       setActiveResult(result);
       setIsSearching(false);
-    }, 350);
+    }, 250);
   };
 
   const handleSelectPreset = (presetNumber: string) => {
     setValidationError(null);
+    setWebIntel(null);
+    setWebError(null);
     setInputNumber(presetNumber);
     setIsSearching(true);
     setTimeout(() => {
       const result = generatePhoneLookup(presetNumber);
       setActiveResult(result);
       setIsSearching(false);
-    }, 250);
+    }, 200);
   };
 
   const isDossierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
@@ -281,6 +309,38 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Section 03 (Left): Live Web OSINT Grounding */}
+          <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+              <div>
+                <h2 className="text-base font-semibold text-white">
+                  Live Web Directory & Complaint Search
+                </h2>
+                <span className="text-xs text-slate-400 mt-0.5 block">
+                  Query live web sources for public business listings, FCC/FTC spam reports, and area exchange data
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => runLiveWebSearch(activeResult)}
+                disabled={webLoading}
+                className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-3.5 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Globe className="h-3.5 w-3.5" />
+                <span>{webLoading ? 'Searching Web...' : 'Search Live Web'}</span>
+              </button>
+            </div>
+
+            <WebIntelPanel
+              title={`Live Web OSINT Results for ${activeResult.formattedNational}`}
+              isLoading={webLoading}
+              error={webError}
+              data={webIntel}
+              onRetry={() => runLiveWebSearch(activeResult)}
+              emptyPrompt="Click 'Search Live Web' to run a real-time web lookup across public caller-ID directories and complaint repositories."
+            />
           </div>
         </div>
 

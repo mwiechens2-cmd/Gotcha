@@ -1,17 +1,23 @@
-import React, { useState } from 'react';
-import {
-  FileCheck,
-  Search,
-} from 'lucide-react';
-import { AlprQueryAuditRecord } from '../types';
+import React, { useMemo, useState } from 'react';
+import { FileCheck, Search } from 'lucide-react';
+import { AlprQueryAuditRecord, SubscriptionTierType, VehicleAlprAuditResult } from '../types';
 
 interface SurveillanceInquiryViewProps {
+  currentTier: SubscriptionTierType;
+  activeAudit: VehicleAlprAuditResult;
   onOpenFoia: () => void;
 }
 
-const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
+interface InquiryRow extends AlprQueryAuditRecord {
+  plateRef: string;
+  isCurrentVehicle: boolean;
+}
+
+const REGIONAL_SAMPLE_INQUIRIES: InquiryRow[] = [
   {
     queryId: 'QRY-2026-LAPD-88192',
+    plateRef: '7XYZ892 (CA)',
+    isCurrentVehicle: false,
     timestamp: '2026-11-10T22:15:40-08:00',
     requestingAgency: 'Los Angeles Police Department (Valley Traffic Div)',
     agencyType: 'Municipal Police',
@@ -23,6 +29,8 @@ const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
   },
   {
     queryId: 'QRY-2026-LASD-04122',
+    plateRef: '7XYZ892 (CA)',
+    isCurrentVehicle: false,
     timestamp: '2026-11-04T11:02:18-08:00',
     requestingAgency: 'Los Angeles County Sheriff Dept (West Hollywood Station)',
     agencyType: 'County Sheriff',
@@ -34,6 +42,8 @@ const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
   },
   {
     queryId: 'QRY-2026-TX-SYNC-1198',
+    plateRef: 'TEX-4921 (TX)',
+    isCurrentVehicle: false,
     timestamp: '2026-11-10T04:00:00-06:00',
     requestingAgency: 'Texas Department of Public Safety (DPS ALPR Gateway)',
     agencyType: 'State Highway Patrol',
@@ -45,6 +55,8 @@ const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
   },
   {
     queryId: 'QRY-2026-FL-HOA-9921',
+    plateRef: 'FL-88A2K (FL)',
+    isCurrentVehicle: false,
     timestamp: '2026-11-09T08:14:00-05:00',
     requestingAgency: 'Biscayne Gated Communities Security Consortium',
     agencyType: 'HOA Security',
@@ -57,22 +69,45 @@ const SAMPLE_INQUIRIES: AlprQueryAuditRecord[] = [
 ];
 
 export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = ({
+  currentTier,
+  activeAudit,
   onOpenFoia,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState('');
 
-  const filteredInquiries = SAMPLE_INQUIRIES.filter((inq) => {
-    const matchesSearch =
-      inq.requestingAgency.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      inq.queryReason.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      inq.queryId.toLowerCase().includes(searchFilter.toLowerCase());
+  const isUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
 
-    if (filterType === 'all') return matchesSearch;
-    if (filterType === 'police') return matchesSearch && (inq.agencyType === 'Municipal Police' || inq.agencyType === 'County Sheriff');
-    if (filterType === 'hoa') return matchesSearch && inq.agencyType === 'HOA Security';
-    if (filterType === 'hotlist') return matchesSearch && inq.alertDisposition.includes('Hotlist');
-    return matchesSearch;
+  const combinedInquiries = useMemo(() => {
+    const currentLabel = `${activeAudit.plateNumber} (${activeAudit.state})`;
+    const activeRows: InquiryRow[] = activeAudit.queryAuditLog.map((q) => ({
+      ...q,
+      plateRef: currentLabel,
+      isCurrentVehicle: true,
+    }));
+
+    const seenIds = new Set(activeRows.map((r) => r.queryId));
+    const extras = REGIONAL_SAMPLE_INQUIRIES.filter((r) => !seenIds.has(r.queryId));
+    return [...activeRows, ...extras];
+  }, [activeAudit]);
+
+  const filteredInquiries = combinedInquiries.filter((inq) => {
+    const q = searchFilter.toLowerCase();
+    const matchesSearch =
+      !q ||
+      inq.requestingAgency.toLowerCase().includes(q) ||
+      inq.queryReason.toLowerCase().includes(q) ||
+      inq.queryId.toLowerCase().includes(q) ||
+      inq.plateRef.toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+    if (filterType === 'current') return inq.isCurrentVehicle;
+    if (filterType === 'police')
+      return inq.agencyType === 'Municipal Police' || inq.agencyType === 'County Sheriff';
+    if (filterType === 'state') return inq.agencyType === 'State Highway Patrol';
+    if (filterType === 'hoa') return inq.agencyType === 'HOA Security';
+    if (filterType === 'hotlist') return inq.alertDisposition.includes('Hotlist');
+    return true;
   });
 
   return (
@@ -132,6 +167,17 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
           </button>
           <button
             type="button"
+            onClick={() => setFilterType('current')}
+            className={`px-3 py-1.5 font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              filterType === 'current'
+                ? 'bg-slate-800 text-white font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Audited Plate ({activeAudit.plateNumber})
+          </button>
+          <button
+            type="button"
             onClick={() => setFilterType('police')}
             className={`px-3 py-1.5 font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               filterType === 'police'
@@ -140,6 +186,17 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
             }`}
           >
             Police & Sheriff
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterType('state')}
+            className={`px-3 py-1.5 font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              filterType === 'state'
+                ? 'bg-slate-800 text-white font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            State Patrol
           </button>
           <button
             type="button"
@@ -172,7 +229,7 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
             type="text"
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Filter agency or case ID..."
+            placeholder="Filter plate, agency, or case ID..."
             className="w-full rounded-lg border border-slate-700 bg-[#080c14] py-1.5 pl-8 pr-3 text-xs font-mono text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
           />
         </div>
@@ -184,7 +241,7 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-slate-800 bg-[#080c14]/90 text-slate-400 font-mono">
-                <th className="py-3 px-4 font-semibold">Query ID & Timestamp</th>
+                <th className="py-3 px-4 font-semibold">Query ID & Plate</th>
                 <th className="py-3 px-4 font-semibold">Requesting Agency</th>
                 <th className="py-3 px-4 font-semibold">Investigative Grounds / Reason</th>
                 <th className="py-3 px-4 font-semibold">Officer / Case Ref</th>
@@ -203,6 +260,9 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
                   <tr key={inq.queryId} className="hover:bg-slate-900/40 transition-colors">
                     <td className="py-3.5 px-4 font-mono text-slate-200 whitespace-nowrap">
                       <span className="font-semibold text-cyan-400 block">{inq.queryId}</span>
+                      <span className="text-[11px] text-slate-300 block">
+                        Plate: {inq.plateRef}
+                      </span>
                       <span className="text-[11px] text-slate-500 tabular-nums">
                         {new Date(inq.timestamp).toLocaleString()}
                       </span>
@@ -220,7 +280,7 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
                       ) : null}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-300 whitespace-nowrap">
-                      {inq.officerBadgeOrCaseId}
+                      {isUnlocked ? inq.officerBadgeOrCaseId : '[Redacted · Upgrade]'}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span

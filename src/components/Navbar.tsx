@@ -25,14 +25,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-[#080c14]/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-8 px-4 py-3.5 sm:px-6">
         {/* Zone 1: Single text element wordmark */}
-        <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-emerald-500/10 border border-cyan-500/40 text-cyan-400">
+        <button
+          type="button"
+          onClick={() => setActiveTab('phone')}
+          className="flex items-center gap-2.5 whitespace-nowrap shrink-0 cursor-pointer text-left group"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-emerald-500/10 border border-cyan-500/40 text-cyan-400 group-hover:border-cyan-400 transition-colors">
             <Shield className="h-4 w-4" />
           </div>
           <span className="text-base font-bold tracking-tight text-white font-sans">
             VigilALPR <span className="text-slate-500 font-normal">/</span> TraceID
           </span>
-        </div>
+        </button>
 
         {/* Zone 2: 4-5 clean single-line text navigation links */}
         <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-300">

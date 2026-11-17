@@ -6,8 +6,11 @@ import { SurveillanceInquiryView } from './components/SurveillanceInquiryView';
 import { PricingModal } from './components/PricingModal';
 import { FoiaModal } from './components/FoiaModal';
 import { ExportModal } from './components/ExportModal';
+import { WebIntelPanel } from './components/WebIntelPanel';
 import { SubscriptionTierType, VehicleAlprAuditResult, PhoneLookupResult } from './types';
 import { generateVehicleAudit } from './data/mockData';
+import { fetchFoiaPortalWeb, WebLookupResponse } from './utils/webLookup';
+import { Globe } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'phone' | 'alpr' | 'inquiry' | 'foia'>('phone');
@@ -23,13 +26,42 @@ export default function App() {
     | null
   >(null);
 
+  const [foiaAgencySearch, setFoiaAgencySearch] = useState('');
+  const [foiaWebLoading, setFoiaWebLoading] = useState(false);
+  const [foiaWebError, setFoiaWebError] = useState<string | null>(null);
+  const [foiaWebIntel, setFoiaWebIntel] = useState<WebLookupResponse | null>(null);
+
   const handleOpenFoia = (data?: VehicleAlprAuditResult) => {
     if (data) setCurrentAuditData(data);
     setIsFoiaOpen(true);
   };
 
-  const handleOpenExport = (data: { type: 'phone'; content: PhoneLookupResult } | { type: 'alpr'; content: VehicleAlprAuditResult }) => {
+  const handleOpenExport = (
+    data: { type: 'phone'; content: PhoneLookupResult } | { type: 'alpr'; content: VehicleAlprAuditResult }
+  ) => {
     setExportData(data);
+  };
+
+  const handleFindFoiaPortal = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const targetAgency =
+      foiaAgencySearch.trim() ||
+      currentAuditData.reciprocalAgencies[0]?.agencyName ||
+      `${currentAuditData.state} Police Records`;
+
+    setFoiaWebLoading(true);
+    setFoiaWebError(null);
+    try {
+      const response = await fetchFoiaPortalWeb({
+        agencyOrCity: targetAgency,
+        state: currentAuditData.state,
+      });
+      setFoiaWebIntel(response);
+    } catch (err) {
+      setFoiaWebError(err instanceof Error ? err.message : 'Unable to locate FOIA portal.');
+    } finally {
+      setFoiaWebLoading(false);
+    }
   };
 
   return (
@@ -55,6 +87,8 @@ export default function App() {
         {activeTab === 'alpr' && (
           <AlprAuditView
             currentTier={currentTier}
+            activeAudit={currentAuditData}
+            onAuditChange={setCurrentAuditData}
             onOpenPricing={() => setIsPricingOpen(true)}
             onOpenFoia={handleOpenFoia}
             onOpenExport={handleOpenExport}
@@ -63,6 +97,8 @@ export default function App() {
 
         {activeTab === 'inquiry' && (
           <SurveillanceInquiryView
+            currentTier={currentTier}
+            activeAudit={currentAuditData}
             onOpenFoia={() => handleOpenFoia()}
           />
         )}
@@ -80,9 +116,14 @@ export default function App() {
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
-              <h2 className="text-base font-semibold text-white">
-                How ALPR Data Rights Work in the United States
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-white">
+                  How ALPR Data Rights Work in the United States
+                </h2>
+                <span className="text-xs font-mono text-cyan-400">
+                  Active Target: {currentAuditData.plateNumber} ({currentAuditData.state})
+                </span>
+              </div>
               <p className="text-xs text-slate-300 leading-relaxed">
                 Automated License Plate Readers (including Flock Safety Falcon cameras, Motorola Vigilant nodes,
                 and police cruiser scanners) capture hundreds of millions of optical scans per month.
@@ -114,9 +155,51 @@ export default function App() {
                   onClick={() => setIsFoiaOpen(true)}
                   className="rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer"
                 >
-                  Launch Customized Request Letter Generator
+                  Launch Customized Request Letter Generator ({currentAuditData.plateNumber})
                 </button>
               </div>
+            </div>
+
+            {/* Live Web FOIA Portal Finder */}
+            <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-white">
+                  Find Your Police Department Public Records Portal
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Search the live web for the official FOIA / open records submission link and clerk contact for any city or law enforcement agency.
+                </p>
+              </div>
+
+              <form onSubmit={handleFindFoiaPortal} className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  type="text"
+                  value={foiaAgencySearch}
+                  onChange={(e) => setFoiaAgencySearch(e.target.value)}
+                  placeholder={
+                    currentAuditData.reciprocalAgencies[0]?.agencyName ||
+                    `Enter city or police agency in ${currentAuditData.state}`
+                  }
+                  className="flex-1 rounded-lg border border-slate-700 bg-[#080c14] py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={foiaWebLoading}
+                  className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-4 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  <span>{foiaWebLoading ? 'Searching Web...' : 'Locate Agency Portal'}</span>
+                </button>
+              </form>
+
+              <WebIntelPanel
+                title="Live Web FOIA Portal Results"
+                isLoading={foiaWebLoading}
+                error={foiaWebError}
+                data={foiaWebIntel}
+                onRetry={() => handleFindFoiaPortal()}
+                emptyPrompt="Enter a city, county, or police department above and click 'Locate Agency Portal' to find official open-records submission URLs."
+              />
             </div>
           </div>
         )}
