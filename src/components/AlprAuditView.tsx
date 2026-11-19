@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Car,
   Search,
@@ -9,11 +9,16 @@ import {
   ArrowRight,
   Download,
   Globe,
+  Bookmark,
+  Check,
+  Bell,
 } from 'lucide-react';
 import { VehicleAlprAuditResult, SubscriptionTierType } from '../types';
 import { PRESET_PLATES, generateVehicleAudit } from '../data/mockData';
 import { fetchAlprWebIntel, WebLookupResponse } from '../utils/webLookup';
 import { WebIntelPanel } from './WebIntelPanel';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { buildAlprAuditId, buildWatchlistId } from '../services/firestoreService';
 
 interface AlprAuditViewProps {
   currentTier: SubscriptionTierType;
@@ -40,6 +45,8 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   onOpenFoia,
   onOpenExport,
 }) => {
+  const { savedAlprAudits, watchlistItems, savePlateAudit, addToWatchlist } = useFirebase();
+
   const [inputPlate, setInputPlate] = useState(activeAudit.plateNumber);
   const [selectedState, setSelectedState] = useState(activeAudit.state);
   const [isAuditing, setIsAuditing] = useState(false);
@@ -49,6 +56,18 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   const [webLoading, setWebLoading] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
   const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
+  const [savingAudit, setSavingAudit] = useState(false);
+  const [watchingPlate, setWatchingPlate] = useState(false);
+
+  useEffect(() => {
+    setInputPlate(activeAudit.plateNumber);
+    setSelectedState(activeAudit.state);
+  }, [activeAudit.plateNumber, activeAudit.state]);
+
+  const currentAuditId = buildAlprAuditId(activeAudit.plateNumber, activeAudit.state);
+  const currentWatchId = buildWatchlistId('plate', activeAudit.plateNumber, activeAudit.state);
+  const isSaved = savedAlprAudits.some((item) => item.id === currentAuditId);
+  const isWatched = watchlistItems.some((item) => item.id === currentWatchId);
 
   const handleAudit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -81,6 +100,33 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
       onAuditChange(result);
       setIsAuditing(false);
     }, 200);
+  };
+
+  const handleSaveAudit = async () => {
+    setSavingAudit(true);
+    try {
+      await savePlateAudit(activeAudit);
+    } finally {
+      setSavingAudit(false);
+    }
+  };
+
+  const handleWatchPlate = async () => {
+    setWatchingPlate(true);
+    try {
+      await addToWatchlist({
+        itemType: 'plate',
+        targetValue: activeAudit.plateNumber,
+        jurisdictionState: activeAudit.state,
+        label: `${activeAudit.vehicleDetails.year} ${activeAudit.vehicleDetails.make} ${activeAudit.vehicleDetails.model}`,
+        lastStatus:
+          activeAudit.auditSummary.overallStatus === 'queried_active'
+            ? 'Active Query Logged'
+            : 'Passive Sightings Only',
+      });
+    } finally {
+      setWatchingPlate(false);
+    }
   };
 
   const runLiveWebAlprSearch = async () => {
@@ -257,15 +303,41 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             </div>
           </div>
 
-          {/* Action Button: FOIA or Export */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          {/* Action Buttons: Save, Watch, FOIA & Export */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void handleSaveAudit()}
+              disabled={savingAudit}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50 ${
+                isSaved
+                  ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:bg-slate-700'
+              }`}
+            >
+              {isSaved ? <Check className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5 text-cyan-400" />}
+              <span>{savingAudit ? 'Saving...' : isSaved ? 'Saved' : 'Save Audit'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleWatchPlate()}
+              disabled={watchingPlate}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50 ${
+                isWatched
+                  ? 'border-cyan-500/60 bg-cyan-950/50 text-cyan-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-cyan-500/50 hover:bg-slate-700'
+              }`}
+            >
+              <Bell className="h-3.5 w-3.5 text-cyan-400" />
+              <span>{watchingPlate ? 'Adding...' : isWatched ? 'Watching' : 'Watch'}</span>
+            </button>
             <button
               type="button"
               onClick={() => onOpenFoia(activeAudit)}
-              className="flex items-center gap-2 rounded-lg bg-slate-800 border border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-500/50 hover:bg-slate-700 transition-colors cursor-pointer"
+              className="flex items-center gap-2 rounded-lg bg-slate-800 border border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-500/50 hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <FileText className="h-4 w-4 text-cyan-400" />
-              <span>FOIA Request Generator</span>
+              <span>FOIA Request</span>
             </button>
             <button
               type="button"
@@ -274,7 +346,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                   ? onOpenExport({ type: 'alpr', content: activeAudit })
                   : onOpenPricing()
               }
-              className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               {isFullAuditUnlocked ? <Download className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
               <span>{isFullAuditUnlocked ? 'Export Audit' : 'Unlock Export'}</span>

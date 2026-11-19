@@ -1,0 +1,240 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything unless explicitly permitted
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Hardened Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function parentUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints (Synchronized with firebase-blueprint.json)
+    // -------------------------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'tier', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'tier', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 320 && data.email == request.auth.token.email
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.tier in ['explorer', 'investigator', 'enterprise']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSavedPhoneLookup(data, userId, lookupId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'phoneNumber', 'formattedNational',
+          'carrierName', 'lineType', 'spamScore', 'riskLevel', 'savedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'phoneNumber', 'formattedNational',
+          'carrierName', 'lineType', 'spamScore', 'riskLevel',
+          'subscriberPreview', 'webSummary', 'savedAt'
+        ])
+        && data.id is string && data.id == lookupId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == userId && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.phoneNumber is string && data.phoneNumber.size() >= 7 && data.phoneNumber.size() <= 24
+        && data.phoneNumber.matches('^\\+?[0-9()\\s\\-]{7,24}$')
+        && data.formattedNational is string && data.formattedNational.size() >= 7 && data.formattedNational.size() <= 32
+        && data.carrierName is string && data.carrierName.size() >= 1 && data.carrierName.size() <= 120
+        && data.lineType in ['Mobile', 'VoIP', 'Landline', 'Toll-Free', 'Virtual / Burner']
+        && data.spamScore is number && data.spamScore >= 0 && data.spamScore <= 100
+        && data.riskLevel in ['Low', 'Moderate', 'High', 'Severe']
+        && (!('subscriberPreview' in data) || (data.subscriberPreview is string && data.subscriberPreview.size() <= 160))
+        && (!('webSummary' in data) || (data.webSummary is string && data.webSummary.size() <= 1200))
+        && data.savedAt is timestamp;
+    }
+
+    function isValidSavedAlprAudit(data, userId, auditId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'plateNumber', 'state', 'overallStatus',
+          'detections30Days', 'activeQueriesCount', 'lastLocation',
+          'retentionStandard', 'savedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'plateNumber', 'state', 'overallStatus',
+          'detections30Days', 'activeQueriesCount', 'lastLocation',
+          'retentionStandard', 'savedAt'
+        ])
+        && data.id is string && data.id == auditId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == userId && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.plateNumber is string && data.plateNumber.size() >= 2 && data.plateNumber.size() <= 12
+        && data.plateNumber.matches('^[A-Z0-9\\-]{2,12}$')
+        && data.state is string && data.state.size() == 2 && data.state.matches('^[A-Z]{2}$')
+        && data.overallStatus in ['queried_active', 'passive_scan_only']
+        && data.detections30Days is number && data.detections30Days >= 0 && data.detections30Days <= 100000
+        && data.activeQueriesCount is number && data.activeQueriesCount >= 0 && data.activeQueriesCount <= 10000
+        && data.lastLocation is string && data.lastLocation.size() >= 1 && data.lastLocation.size() <= 200
+        && data.retentionStandard is string && data.retentionStandard.size() >= 1 && data.retentionStandard.size() <= 240
+        && data.savedAt is timestamp;
+    }
+
+    function isValidWatchlistItem(data, userId, itemId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'itemType', 'targetValue',
+          'label', 'lastStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'itemType', 'targetValue', 'jurisdictionState',
+          'label', 'lastStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == itemId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == userId && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.itemType in ['phone', 'plate']
+        && data.targetValue is string && data.targetValue.size() >= 2 && data.targetValue.size() <= 32
+        && data.targetValue.matches('^[A-Za-z0-9+()\\s\\-]{2,32}$')
+        && (!('jurisdictionState' in data) || (data.jurisdictionState is string && data.jurisdictionState.matches('^([A-Z]{2})?$')))
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 80
+        && data.lastStatus is string && data.lastStatus.size() >= 1 && data.lastStatus.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Match Rules
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      // Strictly isolate PII to verified owner; disallow collection-wide list scraping
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['tier', 'displayName', 'updatedAt']);
+
+      allow delete: if isValidId(userId) && isVerifiedOwner(userId);
+
+      // Saved Reverse Phone OSINT Lookups
+      match /phoneLookups/{lookupId} {
+        allow get: if isValidId(userId) && isValidId(lookupId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(lookupId)
+          && isValidSavedPhoneLookup(incoming(), userId, lookupId)
+          && incoming().savedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(lookupId)
+          && isValidSavedPhoneLookup(incoming(), userId, lookupId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().phoneNumber == existing().phoneNumber
+          && incoming().savedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'formattedNational', 'carrierName', 'lineType', 'spamScore',
+            'riskLevel', 'subscriberPreview', 'webSummary', 'savedAt'
+          ]);
+
+        allow delete: if isValidId(userId) && isValidId(lookupId) && isVerifiedOwner(userId);
+      }
+
+      // Saved Flock Safety & ALPR Vehicle Audits
+      match /alprAudits/{auditId} {
+        allow get: if isValidId(userId) && isValidId(auditId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(auditId)
+          && isValidSavedAlprAudit(incoming(), userId, auditId)
+          && incoming().savedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(auditId)
+          && isValidSavedAlprAudit(incoming(), userId, auditId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().plateNumber == existing().plateNumber
+          && incoming().state == existing().state
+          && incoming().savedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'overallStatus', 'detections30Days', 'activeQueriesCount',
+            'lastLocation', 'retentionStandard', 'savedAt'
+          ]);
+
+        allow delete: if isValidId(userId) && isValidId(auditId) && isVerifiedOwner(userId);
+      }
+
+      // Monitored Watchlist (Phones & License Plates)
+      match /watchlist/{itemId} {
+        allow get: if isValidId(userId) && isValidId(itemId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(itemId)
+          && isValidWatchlistItem(incoming(), userId, itemId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(itemId)
+          && isValidWatchlistItem(incoming(), userId, itemId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().itemType == existing().itemType
+          && incoming().targetValue == existing().targetValue
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'lastStatus', 'updatedAt']);
+
+        allow delete: if isValidId(userId) && isValidId(itemId) && isVerifiedOwner(userId);
+      }
+    }
+  }
+}

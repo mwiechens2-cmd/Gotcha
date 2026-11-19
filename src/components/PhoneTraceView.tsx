@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Search,
   Phone,
@@ -9,32 +9,51 @@ import {
   ArrowRight,
   ShieldAlert,
   Globe,
+  Bookmark,
+  Check,
+  Bell,
 } from 'lucide-react';
 import { PhoneLookupResult, SubscriptionTierType } from '../types';
 import { PRESET_PHONES, generatePhoneLookup } from '../data/mockData';
 import { fetchPhoneWebOsint, WebLookupResponse } from '../utils/webLookup';
 import { WebIntelPanel } from './WebIntelPanel';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { buildPhoneLookupId, buildWatchlistId } from '../services/firestoreService';
 
 interface PhoneTraceViewProps {
   currentTier: SubscriptionTierType;
+  activeResult: PhoneLookupResult;
+  onResultChange: (result: PhoneLookupResult) => void;
   onOpenPricing: () => void;
   onOpenExport: (data: { type: 'phone'; content: PhoneLookupResult }) => void;
 }
 
 export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
   currentTier,
+  activeResult,
+  onResultChange,
   onOpenPricing,
   onOpenExport,
 }) => {
-  const [inputNumber, setInputNumber] = useState('+1 (415) 890-4421');
-  const [activeResult, setActiveResult] = useState<PhoneLookupResult>(() =>
-    generatePhoneLookup('+1 (415) 890-4421')
-  );
+  const { savedPhoneLookups, watchlistItems, savePhoneTrace, addToWatchlist } = useFirebase();
+
+  const [inputNumber, setInputNumber] = useState(activeResult.formattedInternational);
   const [isSearching, setIsSearching] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [webLoading, setWebLoading] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
   const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
+  const [savingTrace, setSavingTrace] = useState(false);
+  const [watchingTarget, setWatchingTarget] = useState(false);
+
+  useEffect(() => {
+    setInputNumber(activeResult.formattedInternational);
+  }, [activeResult.formattedInternational]);
+
+  const currentLookupId = buildPhoneLookupId(activeResult.phoneNumber);
+  const currentWatchId = buildWatchlistId('phone', activeResult.phoneNumber);
+  const isSaved = savedPhoneLookups.some((item) => item.id === currentLookupId);
+  const isWatched = watchlistItems.some((item) => item.id === currentWatchId);
 
   const runLiveWebSearch = async (target: PhoneLookupResult) => {
     setWebLoading(true);
@@ -68,7 +87,7 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
     setIsSearching(true);
     setTimeout(() => {
       const result = generatePhoneLookup(inputNumber);
-      setActiveResult(result);
+      onResultChange(result);
       setIsSearching(false);
     }, 250);
   };
@@ -81,9 +100,33 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
     setIsSearching(true);
     setTimeout(() => {
       const result = generatePhoneLookup(presetNumber);
-      setActiveResult(result);
+      onResultChange(result);
       setIsSearching(false);
     }, 200);
+  };
+
+  const handleSaveTrace = async () => {
+    setSavingTrace(true);
+    try {
+      await savePhoneTrace(activeResult, currentTier, webIntel?.summary);
+    } finally {
+      setSavingTrace(false);
+    }
+  };
+
+  const handleWatchNumber = async () => {
+    setWatchingTarget(true);
+    try {
+      await addToWatchlist({
+        itemType: 'phone',
+        targetValue: activeResult.phoneNumber,
+        jurisdictionState: '',
+        label: `${activeResult.carrier.name} (${activeResult.formattedNational})`,
+        lastStatus: `${activeResult.riskAnalysis.riskLevel} Risk (${activeResult.riskAnalysis.spamScore}/100)`,
+      });
+    } finally {
+      setWatchingTarget(false);
+    }
   };
 
   const isDossierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
@@ -165,32 +208,50 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
         <div className="lg:col-span-7 space-y-6">
           {/* Section 01: Telecom Routing */}
           <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
               <div>
                 <h2 className="text-base font-semibold text-white">
                   01. Telecom & Carrier Architecture
                 </h2>
-                <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-0.5">
                   <span className="font-mono text-cyan-400 tabular-nums">
                     {activeResult.formattedInternational}
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>{activeResult.countryName}</span>
                   <span aria-hidden="true">·</span>
-                  <span>E.164 Validated</span>
+                  <span>Line: {activeResult.lineType}</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-xs px-2.5 py-1 rounded border font-mono font-medium ${
-                    activeResult.lineType === 'VoIP' || activeResult.lineType === 'Virtual / Burner'
-                      ? 'border-amber-800/60 bg-amber-950/30 text-amber-300'
-                      : 'border-slate-700 bg-slate-800/50 text-slate-300'
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveTrace()}
+                  disabled={savingTrace}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50 ${
+                    isSaved
+                      ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-300'
+                      : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-cyan-500/50 hover:text-white'
                   }`}
                 >
-                  Line: {activeResult.lineType}
-                </span>
+                  {isSaved ? <Check className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5 text-cyan-400" />}
+                  <span>{savingTrace ? 'Saving...' : isSaved ? 'Saved' : 'Save Trace'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleWatchNumber()}
+                  disabled={watchingTarget}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50 ${
+                    isWatched
+                      ? 'border-cyan-500/60 bg-cyan-950/50 text-cyan-300'
+                      : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-cyan-500/50 hover:text-white'
+                  }`}
+                >
+                  <Bell className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{watchingTarget ? 'Adding...' : isWatched ? 'Watching' : 'Watch'}</span>
+                </button>
               </div>
             </div>
 

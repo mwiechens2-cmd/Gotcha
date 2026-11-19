@@ -129,3 +129,52 @@ export interface VehicleAlprAuditResult {
     dataShareScope: 'Full Real-Time Access' | 'Historical Search (30-day)' | 'Audit Log Only';
   }>;
 }
+
+export interface UserProfileRecord {
+  uid: string;
+  email: string;
+  displayName: string;
+  tier: SubscriptionTierType;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface SavedPhoneLookupRecord {
+  id: string;
+  ownerId: string;
+  phoneNumber: string;
+  formattedNational: string;
+  carrierName: string;
+  lineType: 'Mobile' | 'Landline' | 'VoIP' | 'Toll-Free' | 'Virtual / Burner';
+  spamScore: number;
+  riskLevel: 'Low' | 'Moderate' | 'High' | 'Severe';
+  subscriberPreview?: string;
+  webSummary?: string;
+  savedAt?: unknown;
+}
+
+export interface SavedAlprAuditRecord {
+  id: string;
+  ownerId: string;
+  plateNumber: string;
+  state: string;
+  overallStatus: 'queried_active' | 'passive_scan_only';
+  detections30Days: number;
+  activeQueriesCount: number;
+  lastLocation: string;
+  retentionStandard: string;
+  savedAt?: unknown;
+}
+
+export interface WatchlistItemRecord {
+  id: string;
+  ownerId: string;
+  itemType: 'phone' | 'plate';
+  targetValue: string;
+  jurisdictionState?: string;
+  label: string;
+  lastStatus: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+

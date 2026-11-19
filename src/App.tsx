@@ -1,22 +1,35 @@
 import React, { useState } from 'react';
-import { Navbar } from './components/Navbar';
+import { AlertCircle, Globe, X } from 'lucide-react';
+import { AppTab, Navbar } from './components/Navbar';
 import { PhoneTraceView } from './components/PhoneTraceView';
 import { AlprAuditView } from './components/AlprAuditView';
 import { SurveillanceInquiryView } from './components/SurveillanceInquiryView';
+import { WatchlistView } from './components/WatchlistView';
 import { PricingModal } from './components/PricingModal';
 import { FoiaModal } from './components/FoiaModal';
 import { ExportModal } from './components/ExportModal';
 import { WebIntelPanel } from './components/WebIntelPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { FirebaseProvider, useFirebase } from './contexts/FirebaseContext';
 import { SubscriptionTierType, VehicleAlprAuditResult, PhoneLookupResult } from './types';
-import { generateVehicleAudit } from './data/mockData';
+import { generatePhoneLookup, generateVehicleAudit } from './data/mockData';
 import { fetchFoiaPortalWeb, WebLookupResponse } from './utils/webLookup';
-import { Globe } from 'lucide-react';
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<'phone' | 'alpr' | 'inquiry' | 'foia'>('phone');
-  const [currentTier, setCurrentTier] = useState<SubscriptionTierType>('investigator');
+interface AppWorkspaceProps {
+  currentTier: SubscriptionTierType;
+  setCurrentTier: React.Dispatch<React.SetStateAction<SubscriptionTierType>>;
+}
+
+const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier }) => {
+  const { firebaseError, clearFirebaseError, syncTierSelection } = useFirebase();
+
+  const [activeTab, setActiveTab] = useState<AppTab>('phone');
   const [isPricingOpen, setIsPricingOpen] = useState(false);
   const [isFoiaOpen, setIsFoiaOpen] = useState(false);
+
+  const [activePhoneResult, setActivePhoneResult] = useState<PhoneLookupResult>(() =>
+    generatePhoneLookup('+1 (415) 890-4421')
+  );
   const [currentAuditData, setCurrentAuditData] = useState<VehicleAlprAuditResult>(() =>
     generateVehicleAudit('7XYZ892', 'CA')
   );
@@ -40,6 +53,21 @@ export default function App() {
     data: { type: 'phone'; content: PhoneLookupResult } | { type: 'alpr'; content: VehicleAlprAuditResult }
   ) => {
     setExportData(data);
+  };
+
+  const handleSelectTier = (tier: SubscriptionTierType) => {
+    setCurrentTier(tier);
+    void syncTierSelection(tier);
+  };
+
+  const handleOpenPhoneFromWorkspace = (phoneNumber: string) => {
+    setActivePhoneResult(generatePhoneLookup(phoneNumber));
+    setActiveTab('phone');
+  };
+
+  const handleOpenAuditFromWorkspace = (plateNumber: string, state: string) => {
+    setCurrentAuditData(generateVehicleAudit(plateNumber, state));
+    setActiveTab('alpr');
   };
 
   const handleFindFoiaPortal = async (e?: React.FormEvent) => {
@@ -74,11 +102,33 @@ export default function App() {
         onOpenPricing={() => setIsPricingOpen(true)}
       />
 
+      {/* Firestore Error Notification Banner */}
+      {firebaseError && (
+        <div className="max-w-7xl w-full mx-auto px-4 pt-4 sm:px-6">
+          <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-4 py-3 flex items-start justify-between gap-3 text-xs text-rose-200">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed break-words">{firebaseError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={clearFirebaseError}
+              className="text-rose-300 hover:text-white p-0.5 cursor-pointer shrink-0"
+              aria-label="Dismiss error"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6">
         {activeTab === 'phone' && (
           <PhoneTraceView
             currentTier={currentTier}
+            activeResult={activePhoneResult}
+            onResultChange={setActivePhoneResult}
             onOpenPricing={() => setIsPricingOpen(true)}
             onOpenExport={handleOpenExport}
           />
@@ -203,6 +253,13 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {activeTab === 'watchlist' && (
+          <WatchlistView
+            onOpenPhoneTrace={handleOpenPhoneFromWorkspace}
+            onOpenAlprAudit={handleOpenAuditFromWorkspace}
+          />
+        )}
       </main>
 
       {/* Footer */}
@@ -229,9 +286,13 @@ export default function App() {
             >
               FOIA Request Generator
             </button>
-            <span className="text-slate-400">
-              Zero-Log Privacy Protocol
-            </span>
+            <button
+              type="button"
+              onClick={() => setActiveTab('watchlist')}
+              className="hover:text-white transition-colors cursor-pointer"
+            >
+              Watchlist & Cloud Sync
+            </button>
           </div>
         </div>
       </footer>
@@ -241,7 +302,7 @@ export default function App() {
         isOpen={isPricingOpen}
         onClose={() => setIsPricingOpen(false)}
         currentTier={currentTier}
-        onSelectTier={(tier) => setCurrentTier(tier)}
+        onSelectTier={handleSelectTier}
       />
 
       <FoiaModal
@@ -256,5 +317,17 @@ export default function App() {
         exportData={exportData}
       />
     </div>
+  );
+};
+
+export default function App() {
+  const [currentTier, setCurrentTier] = useState<SubscriptionTierType>('investigator');
+
+  return (
+    <ErrorBoundary>
+      <FirebaseProvider currentTier={currentTier} onTierHydrated={setCurrentTier}>
+        <AppWorkspace currentTier={currentTier} setCurrentTier={setCurrentTier} />
+      </FirebaseProvider>
+    </ErrorBoundary>
   );
 }
