@@ -22,9 +22,11 @@ import { buildAlprAuditId, buildWatchlistId } from '../services/firestoreService
 
 interface AlprAuditViewProps {
   currentTier: SubscriptionTierType;
+  isPasscodeUnlocked: boolean;
   activeAudit: VehicleAlprAuditResult;
   onAuditChange: (audit: VehicleAlprAuditResult) => void;
   onOpenPricing: () => void;
+  onOpenPasscodeModal: () => void;
   onOpenFoia: (auditData: VehicleAlprAuditResult) => void;
   onOpenExport: (data: { type: 'alpr'; content: VehicleAlprAuditResult }) => void;
 }
@@ -39,9 +41,11 @@ const US_STATES = [
 
 export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   currentTier,
+  isPasscodeUnlocked,
   activeAudit,
   onAuditChange,
   onOpenPricing,
+  onOpenPasscodeModal,
   onOpenFoia,
   onOpenExport,
 }) => {
@@ -145,7 +149,8 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
     }
   };
 
-  const isFullAuditUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isTierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isFullAuditUnlocked = isTierUnlocked && isPasscodeUnlocked;
   const hasBeenLookedInto = activeAudit.auditSummary.overallStatus === 'queried_active';
 
   const visibleSightings = isFullAuditUnlocked
@@ -341,15 +346,25 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() =>
-                isFullAuditUnlocked
-                  ? onOpenExport({ type: 'alpr', content: activeAudit })
-                  : onOpenPricing()
-              }
+              onClick={() => {
+                if (!isTierUnlocked) {
+                  onOpenPricing();
+                } else if (!isPasscodeUnlocked) {
+                  onOpenPasscodeModal();
+                } else {
+                  onOpenExport({ type: 'alpr', content: activeAudit });
+                }
+              }}
               className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               {isFullAuditUnlocked ? <Download className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-              <span>{isFullAuditUnlocked ? 'Export Audit' : 'Unlock Export'}</span>
+              <span>
+                {isFullAuditUnlocked
+                  ? 'Export Audit'
+                  : isTierUnlocked
+                  ? 'Passcode to Export'
+                  : 'Unlock Export'}
+              </span>
             </button>
           </div>
         </div>
@@ -395,7 +410,11 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono">
                       Agency Type: {log.agencyType} ·{' '}
-                      {isFullAuditUnlocked ? log.officerBadgeOrCaseId : '[Badge/Case Redacted on Explorer]'}
+                      {isFullAuditUnlocked
+                        ? log.officerBadgeOrCaseId
+                        : isTierUnlocked
+                        ? '[Badge/Case Locked · Passcode Required]'
+                        : '[Badge/Case Redacted on Explorer]'}
                     </span>
                   </div>
 
@@ -580,7 +599,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               ))}
             </div>
 
-            {/* Tier Lock Teaser if on Free Explorer */}
+            {/* Tier or Passcode Lock Teaser */}
             {!isFullAuditUnlocked && (
               <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-b from-cyan-950/40 to-[#080c14] p-5 text-center space-y-3 mt-4">
                 <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
@@ -588,22 +607,28 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white">
-                    {hiddenSightingsCount > 0
-                      ? `${hiddenSightingsCount} Additional Camera Sightings & Full Audit Locked`
-                      : 'Historical 90-Day Audit Log Restricted'}
+                    {!isTierUnlocked
+                      ? hiddenSightingsCount > 0
+                        ? `${hiddenSightingsCount} Additional Camera Sightings & Full Audit Locked`
+                        : 'Historical 90-Day Audit Log Restricted'
+                      : 'Enter Access Passcode to Reveal Full Sightings & Badge IDs'}
                   </h4>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                    The free Explorer tier previews only the latest capture and redacts officer badge IDs.
-                    Upgrade to Investigator Pro to unlock all camera sightings, unredacted badge identifiers,
-                    and full FOIA packet exports.
+                    {!isTierUnlocked
+                      ? 'The free Explorer tier previews only the latest capture and redacts officer badge IDs. Upgrade to Investigator Pro to unlock all camera sightings, unredacted badge identifiers, and full FOIA packet exports.'
+                      : 'Full optical node logs, unredacted officer badge identifiers, and PDF audit exports are gated behind the OSINT access passcode.'}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={onOpenPricing}
+                  onClick={isTierUnlocked ? onOpenPasscodeModal : onOpenPricing}
                   className="w-full flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer"
                 >
-                  <span>Upgrade to Investigator Pro ($29/mo)</span>
+                  <span>
+                    {isTierUnlocked
+                      ? 'Enter Access Passcode to Unlock'
+                      : 'Upgrade to Investigator Pro ($29/mo)'}
+                  </span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>

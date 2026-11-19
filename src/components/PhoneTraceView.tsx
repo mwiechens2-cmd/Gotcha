@@ -22,17 +22,23 @@ import { buildPhoneLookupId, buildWatchlistId } from '../services/firestoreServi
 
 interface PhoneTraceViewProps {
   currentTier: SubscriptionTierType;
+  isPasscodeUnlocked: boolean;
   activeResult: PhoneLookupResult;
   onResultChange: (result: PhoneLookupResult) => void;
   onOpenPricing: () => void;
+  onOpenPasscodeModal: () => void;
+  onLockPasscode: () => void;
   onOpenExport: (data: { type: 'phone'; content: PhoneLookupResult }) => void;
 }
 
 export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
   currentTier,
+  isPasscodeUnlocked,
   activeResult,
   onResultChange,
   onOpenPricing,
+  onOpenPasscodeModal,
+  onLockPasscode,
   onOpenExport,
 }) => {
   const { savedPhoneLookups, watchlistItems, savePhoneTrace, addToWatchlist } = useFirebase();
@@ -129,7 +135,8 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
     }
   };
 
-  const isDossierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isTierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isDossierUnlocked = isTierUnlocked && isPasscodeUnlocked;
 
   const getRiskColor = (score: number) => {
     if (score >= 70) return 'text-rose-400 bg-rose-950/40 border-rose-800/60';
@@ -421,18 +428,29 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
               </div>
 
               {isDossierUnlocked && (
-                <button
-                  type="button"
-                  onClick={() => onOpenExport({ type: 'phone', content: activeResult })}
-                  className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Export</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onLockPasscode}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-amber-300 font-medium cursor-pointer"
+                    title="Re-lock sensitive OSINT dossier"
+                  >
+                    <Lock className="h-3.5 w-3.5" />
+                    <span>Lock</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenExport({ type: 'phone', content: activeResult })}
+                    className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Export</span>
+                  </button>
+                </div>
               )}
             </div>
 
-            {/* Redacted Paywall View vs Unlocked Unredacted Dossier */}
+            {/* Redacted Paywall / Passcode Gate vs Unlocked Unredacted Dossier */}
             {!isDossierUnlocked ? (
               <div className="mt-4 space-y-4">
                 {/* Visual Redacted Teaser */}
@@ -451,35 +469,63 @@ export const PhoneTraceView: React.FC<PhoneTraceViewProps> = ({
                   </div>
                 </div>
 
-                {/* Conversion Callout */}
-                <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-b from-cyan-950/40 to-[#080c14] p-5 text-center space-y-3.5">
-                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-                    <ShieldAlert className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Investigator Subscription Required
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Deep OSINT dossiers reveal verified subscriber identities, physical address records,
-                      connected email accounts, and historical data breach associations.
-                    </p>
-                  </div>
+                {/* Conversion or Access Passcode Callout */}
+                {isTierUnlocked ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-gradient-to-b from-amber-950/30 to-[#080c14] p-5 text-center space-y-3.5">
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                      <Lock className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">
+                        OSINT Access Passcode Required
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        Sensitive subscriber registries, physical addresses, breach exposures, and PDF exports
+                        are protected by your workspace access passcode.
+                      </p>
+                    </div>
 
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={onOpenPricing}
-                      className="w-full flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer shadow-lg shadow-cyan-950/50"
-                    >
-                      <span>Unlock Dossier with Investigator Pro ($29/mo)</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="text-[11px] text-slate-500 mt-2 block">
-                      Unlimited monthly searches · Cancel anytime
-                    </span>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={onOpenPasscodeModal}
+                        className="w-full flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer"
+                      >
+                        <span>Enter Access Passcode to Unlock</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-b from-cyan-950/40 to-[#080c14] p-5 text-center space-y-3.5">
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                      <ShieldAlert className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">
+                        Investigator Subscription Required
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        Deep OSINT dossiers reveal verified subscriber identities, physical address records,
+                        connected email accounts, and historical data breach associations.
+                      </p>
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={onOpenPricing}
+                        className="w-full flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer shadow-lg shadow-cyan-950/50"
+                      >
+                        <span>Unlock Dossier with Investigator Pro ($29/mo)</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="text-[11px] text-slate-500 mt-2 block">
+                        Unlimited monthly searches · Cancel anytime
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* Unlocked OSINT Dossier Content */

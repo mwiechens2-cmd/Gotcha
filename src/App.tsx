@@ -1,31 +1,94 @@
-import React, { useState } from 'react';
-import { AlertCircle, Globe, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, Globe, KeyRound, Lock, RefreshCw, Unlock, X } from 'lucide-react';
 import { AppTab, Navbar } from './components/Navbar';
 import { PhoneTraceView } from './components/PhoneTraceView';
 import { AlprAuditView } from './components/AlprAuditView';
 import { SurveillanceInquiryView } from './components/SurveillanceInquiryView';
+import { BatchAuditView } from './components/BatchAuditView';
 import { WatchlistView } from './components/WatchlistView';
 import { PricingModal } from './components/PricingModal';
 import { FoiaModal } from './components/FoiaModal';
 import { ExportModal } from './components/ExportModal';
+import { PasscodeModal } from './components/PasscodeModal';
 import { WebIntelPanel } from './components/WebIntelPanel';
+import { ActivityEvent, ActivitySummaryChart } from './components/ActivitySummaryChart';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FirebaseProvider, useFirebase } from './contexts/FirebaseContext';
 import { SubscriptionTierType, VehicleAlprAuditResult, PhoneLookupResult } from './types';
 import { generatePhoneLookup, generateVehicleAudit } from './data/mockData';
-import { fetchFoiaPortalWeb, WebLookupResponse } from './utils/webLookup';
+import {
+  AccessStatusResponse,
+  fetchAccessStatus,
+  fetchFoiaPortalWeb,
+  WebLookupResponse,
+} from './utils/webLookup';
 
 interface AppWorkspaceProps {
   currentTier: SubscriptionTierType;
   setCurrentTier: React.Dispatch<React.SetStateAction<SubscriptionTierType>>;
 }
 
+const PASSCODE_STORAGE_KEY = 'vigil_osint_passcode_unlocked';
+
 const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier }) => {
-  const { firebaseError, clearFirebaseError, syncTierSelection } = useFirebase();
+  const {
+    firebaseError,
+    clearFirebaseError,
+    retryConnection,
+    syncTierSelection,
+    savedPhoneLookups,
+    savedAlprAudits,
+    dataLoading,
+  } = useFirebase();
 
   const [activeTab, setActiveTab] = useState<AppTab>('phone');
   const [isPricingOpen, setIsPricingOpen] = useState(false);
   const [isFoiaOpen, setIsFoiaOpen] = useState(false);
+  const [isPasscodeOpen, setIsPasscodeOpen] = useState(false);
+  const [isPasscodeUnlocked, setIsPasscodeUnlocked] = useState<boolean>(() => {
+    try {
+      return window.sessionStorage.getItem(PASSCODE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [accessStatus, setAccessStatus] = useState<AccessStatusResponse>({
+    customSecretConfigured: false,
+    demoPasscode: 'VIGIL-2026',
+  });
+
+  useEffect(() => {
+    let active = true;
+    fetchAccessStatus()
+      .then((status) => {
+        if (active) setAccessStatus(status);
+      })
+      .catch(() => {
+        // Keep safe defaults if status check is temporarily unreachable
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleUnlockPasscode = () => {
+    setIsPasscodeUnlocked(true);
+    try {
+      window.sessionStorage.setItem(PASSCODE_STORAGE_KEY, 'true');
+    } catch {
+      // Ignore storage failures in restricted contexts
+    }
+  };
+
+  const handleLockPasscode = () => {
+    setIsPasscodeUnlocked(false);
+    setExportData(null);
+    try {
+      window.sessionStorage.removeItem(PASSCODE_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures
+    }
+  };
 
   const [activePhoneResult, setActivePhoneResult] = useState<PhoneLookupResult>(() =>
     generatePhoneLookup('+1 (415) 890-4421')
@@ -33,6 +96,10 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
   const [currentAuditData, setCurrentAuditData] = useState<VehicleAlprAuditResult>(() =>
     generateVehicleAudit('7XYZ892', 'CA')
   );
+  const [sessionEvents, setSessionEvents] = useState<ActivityEvent[]>(() => [
+    { type: 'phone', targetKey: '14158904421', timestampMs: Date.now() },
+    { type: 'alpr', targetKey: 'CA_7XYZ892', timestampMs: Date.now() },
+  ]);
   const [exportData, setExportData] = useState<
     | { type: 'phone'; content: PhoneLookupResult }
     | { type: 'alpr'; content: VehicleAlprAuditResult }
@@ -60,13 +127,31 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
     void syncTierSelection(tier);
   };
 
+  const handlePhoneResultChange = (result: PhoneLookupResult) => {
+    setActivePhoneResult(result);
+    const digits = result.phoneNumber.replace(/\D/g, '');
+    setSessionEvents((prev) => [
+      ...prev,
+      { type: 'phone', targetKey: digits, timestampMs: Date.now() },
+    ]);
+  };
+
+  const handleAlprAuditChange = (audit: VehicleAlprAuditResult) => {
+    setCurrentAuditData(audit);
+    const key = `${audit.state.toUpperCase()}_${audit.plateNumber.toUpperCase()}`;
+    setSessionEvents((prev) => [
+      ...prev,
+      { type: 'alpr', targetKey: key, timestampMs: Date.now() },
+    ]);
+  };
+
   const handleOpenPhoneFromWorkspace = (phoneNumber: string) => {
-    setActivePhoneResult(generatePhoneLookup(phoneNumber));
+    handlePhoneResultChange(generatePhoneLookup(phoneNumber));
     setActiveTab('phone');
   };
 
   const handleOpenAuditFromWorkspace = (plateNumber: string, state: string) => {
-    setCurrentAuditData(generateVehicleAudit(plateNumber, state));
+    handleAlprAuditChange(generateVehicleAudit(plateNumber, state));
     setActiveTab('alpr');
   };
 
@@ -110,26 +195,91 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
               <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
               <p className="leading-relaxed break-words">{firebaseError}</p>
             </div>
-            <button
-              type="button"
-              onClick={clearFirebaseError}
-              className="text-rose-300 hover:text-white p-0.5 cursor-pointer shrink-0"
-              aria-label="Dismiss error"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void retryConnection()}
+                className="inline-flex items-center gap-1 rounded border border-rose-700/60 bg-rose-900/40 px-2 py-1 text-[11px] font-medium text-rose-100 hover:bg-rose-900/70 cursor-pointer"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span>Retry</span>
+              </button>
+              <button
+                type="button"
+                onClick={clearFirebaseError}
+                className="text-rose-300 hover:text-white p-0.5 cursor-pointer"
+                aria-label="Dismiss error"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Main Viewport Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 space-y-6">
+        {/* Compact OSINT Access Vault Bar */}
+        <div className="rounded-xl border border-slate-800 bg-[#0d1322] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-slate-300">
+            {isPasscodeUnlocked ? (
+              <Unlock className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+            ) : (
+              <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            )}
+            <span className="font-medium text-white">
+              Sensitive OSINT Vault: {isPasscodeUnlocked ? 'Unlocked' : 'Locked'}
+            </span>
+            <span aria-hidden="true" className="text-slate-700 hidden sm:inline">·</span>
+            <span className="text-slate-400 hidden sm:inline">
+              {isPasscodeUnlocked
+                ? 'Subscriber dossiers, badge IDs, and PDF exports are accessible for this session.'
+                : 'Enter your workspace access passcode to unredact dossiers, badge logs, and exports.'}
+            </span>
+          </div>
+
+          {isPasscodeUnlocked ? (
+            <button
+              type="button"
+              onClick={handleLockPasscode}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-amber-500/50 hover:text-amber-300 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Lock className="h-3.5 w-3.5" />
+              <span>Lock OSINT Vault</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsPasscodeOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              <span>Unlock with Passcode</span>
+            </button>
+          )}
+        </div>
+
+        {(activeTab === 'phone' ||
+          activeTab === 'alpr' ||
+          activeTab === 'batch' ||
+          activeTab === 'watchlist') && (
+          <ActivitySummaryChart
+            sessionEvents={sessionEvents}
+            savedPhoneLookups={savedPhoneLookups}
+            savedAlprAudits={savedAlprAudits}
+            dataLoading={dataLoading}
+          />
+        )}
+
         {activeTab === 'phone' && (
           <PhoneTraceView
             currentTier={currentTier}
+            isPasscodeUnlocked={isPasscodeUnlocked}
             activeResult={activePhoneResult}
-            onResultChange={setActivePhoneResult}
+            onResultChange={handlePhoneResultChange}
             onOpenPricing={() => setIsPricingOpen(true)}
+            onOpenPasscodeModal={() => setIsPasscodeOpen(true)}
+            onLockPasscode={handleLockPasscode}
             onOpenExport={handleOpenExport}
           />
         )}
@@ -137,10 +287,36 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
         {activeTab === 'alpr' && (
           <AlprAuditView
             currentTier={currentTier}
+            isPasscodeUnlocked={isPasscodeUnlocked}
             activeAudit={currentAuditData}
-            onAuditChange={setCurrentAuditData}
+            onAuditChange={handleAlprAuditChange}
             onOpenPricing={() => setIsPricingOpen(true)}
+            onOpenPasscodeModal={() => setIsPasscodeOpen(true)}
             onOpenFoia={handleOpenFoia}
+            onOpenExport={handleOpenExport}
+          />
+        )}
+
+        {activeTab === 'batch' && (
+          <BatchAuditView
+            currentTier={currentTier}
+            isPasscodeUnlocked={isPasscodeUnlocked}
+            onOpenPricing={() => setIsPricingOpen(true)}
+            onOpenPasscodeModal={() => setIsPasscodeOpen(true)}
+            onInspectPhone={(result) => {
+              setActivePhoneResult(result);
+              setActiveTab('phone');
+            }}
+            onInspectAlpr={(audit) => {
+              setCurrentAuditData(audit);
+              setActiveTab('alpr');
+            }}
+            onRecordEvent={(type, targetKey) => {
+              setSessionEvents((prev) => [
+                ...prev,
+                { type, targetKey, timestampMs: Date.now() },
+              ]);
+            }}
             onOpenExport={handleOpenExport}
           />
         )}
@@ -148,8 +324,10 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
         {activeTab === 'inquiry' && (
           <SurveillanceInquiryView
             currentTier={currentTier}
+            isPasscodeUnlocked={isPasscodeUnlocked}
             activeAudit={currentAuditData}
             onOpenFoia={() => handleOpenFoia()}
+            onOpenPasscodeModal={() => setIsPasscodeOpen(true)}
           />
         )}
 
@@ -288,6 +466,13 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('batch')}
+              className="hover:text-white transition-colors cursor-pointer"
+            >
+              Batch Lookup
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('watchlist')}
               className="hover:text-white transition-colors cursor-pointer"
             >
@@ -315,6 +500,14 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
         isOpen={!!exportData}
         onClose={() => setExportData(null)}
         exportData={exportData}
+      />
+
+      <PasscodeModal
+        isOpen={isPasscodeOpen}
+        onClose={() => setIsPasscodeOpen(false)}
+        onUnlocked={handleUnlockPasscode}
+        customSecretConfigured={accessStatus.customSecretConfigured}
+        demoPasscode={accessStatus.demoPasscode}
       />
     </div>
   );

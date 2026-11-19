@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
+import { auth, db, googleProvider, handleFirestoreError, OperationType, testConnection } from '../firebase';
 import {
   ensureUserProfile,
   persistUserTier,
@@ -35,6 +35,7 @@ interface FirebaseContextValue {
   watchlistItems: WatchlistItemRecord[];
   firebaseError: string | null;
   clearFirebaseError: () => void;
+  retryConnection: () => Promise<void>;
   signInWithGoogle: () => Promise<User | null>;
   signOutUser: () => Promise<void>;
   syncTierSelection: (nextTier: SubscriptionTierType) => Promise<void>;
@@ -327,6 +328,20 @@ export const FirebaseProvider: React.FC<{
     }
   };
 
+  const retryConnection = async (): Promise<void> => {
+    setFirebaseError(null);
+    try {
+      await testConnection();
+      if (user) {
+        const profile = await ensureUserProfile(user, currentTier);
+        setUserProfile(profile);
+        onTierHydrated(profile.tier);
+      }
+    } catch (err) {
+      setFirebaseError(formatUserFacingError(err));
+    }
+  };
+
   return (
     <FirebaseContext.Provider
       value={{
@@ -340,6 +355,7 @@ export const FirebaseProvider: React.FC<{
         watchlistItems,
         firebaseError,
         clearFirebaseError: () => setFirebaseError(null),
+        retryConnection,
         signInWithGoogle,
         signOutUser,
         syncTierSelection,

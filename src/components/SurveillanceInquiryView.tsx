@@ -4,8 +4,10 @@ import { AlprQueryAuditRecord, SubscriptionTierType, VehicleAlprAuditResult } fr
 
 interface SurveillanceInquiryViewProps {
   currentTier: SubscriptionTierType;
+  isPasscodeUnlocked: boolean;
   activeAudit: VehicleAlprAuditResult;
   onOpenFoia: () => void;
+  onOpenPasscodeModal: () => void;
 }
 
 interface InquiryRow extends AlprQueryAuditRecord {
@@ -70,13 +72,16 @@ const REGIONAL_SAMPLE_INQUIRIES: InquiryRow[] = [
 
 export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = ({
   currentTier,
+  isPasscodeUnlocked,
   activeAudit,
   onOpenFoia,
+  onOpenPasscodeModal,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState('');
 
-  const isUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isTierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
+  const isUnlocked = isTierUnlocked && isPasscodeUnlocked;
 
   const combinedInquiries = useMemo(() => {
     const currentLabel = `${activeAudit.plateNumber} (${activeAudit.state})`;
@@ -280,7 +285,19 @@ export const SurveillanceInquiryView: React.FC<SurveillanceInquiryViewProps> = (
                       ) : null}
                     </td>
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-300 whitespace-nowrap">
-                      {isUnlocked ? inq.officerBadgeOrCaseId : '[Redacted · Upgrade]'}
+                      {isUnlocked ? (
+                        inq.officerBadgeOrCaseId
+                      ) : isTierUnlocked ? (
+                        <button
+                          type="button"
+                          onClick={onOpenPasscodeModal}
+                          className="text-amber-300 hover:text-cyan-300 underline cursor-pointer"
+                        >
+                          Unlock with Passcode
+                        </button>
+                      ) : (
+                        '[Redacted · Upgrade]'
+                      )}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <span

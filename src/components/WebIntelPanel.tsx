@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, ExternalLink, AlertCircle, RefreshCw } from 'lucide-react';
+import { Globe, ExternalLink, AlertCircle, RefreshCw, Info } from 'lucide-react';
 import { WebLookupResponse } from '../utils/webLookup';
 
 interface WebIntelPanelProps {
@@ -28,17 +28,30 @@ export const WebIntelPanel: React.FC<WebIntelPanelProps> = ({
     );
   }
 
+  const modeLabel =
+    data?.searchMode === 'public_web_fallback'
+      ? 'Public Web Fallback'
+      : data?.searchMode === 'gemini_grounding'
+      ? 'Gemini Search Grounding'
+      : null;
+
   return (
     <div className="rounded-lg border border-cyan-900/50 bg-[#080c14]/80 p-4 space-y-3 text-xs">
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-2 text-cyan-300 font-semibold">
           <Globe className="h-3.5 w-3.5 shrink-0" />
           <span>{title}</span>
         </div>
-        {data && data.sources.length > 0 && (
-          <span className="font-mono text-[11px] text-slate-400 tabular-nums">
-            {data.sources.length} Web Source{data.sources.length === 1 ? '' : 's'}
-          </span>
+        {data && (
+          <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400 tabular-nums">
+            {modeLabel && <span>{modeLabel}</span>}
+            {modeLabel && data.sources.length > 0 && <span aria-hidden="true">·</span>}
+            {data.sources.length > 0 && (
+              <span>
+                {data.sources.length} Web Source{data.sources.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -48,7 +61,7 @@ export const WebIntelPanel: React.FC<WebIntelPanelProps> = ({
           <div className="h-3 bg-slate-800 rounded w-full" />
           <div className="h-3 bg-slate-800 rounded w-5/6" />
           <span className="text-[11px] font-mono text-cyan-400/80 block pt-1">
-            Querying live web search grounding...
+            Querying live internet search sources...
           </span>
         </div>
       )}
@@ -74,6 +87,25 @@ export const WebIntelPanel: React.FC<WebIntelPanelProps> = ({
 
       {data && !isLoading && !error && (
         <div className="space-y-3">
+          {data.notice && (
+            <div className="rounded-lg border border-amber-700/50 bg-amber-950/25 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-200">
+              <div className="flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span>{data.notice}</span>
+              </div>
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="inline-flex items-center gap-1 text-amber-300 hover:text-white font-medium cursor-pointer shrink-0"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Retry Search</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="text-slate-200 leading-relaxed whitespace-pre-wrap font-sans">
             {data.summary}
           </div>

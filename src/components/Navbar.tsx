@@ -3,7 +3,7 @@ import { Shield, CreditCard, LogIn, LogOut } from 'lucide-react';
 import { SubscriptionTierType } from '../types';
 import { useFirebase } from '../contexts/FirebaseContext';
 
-export type AppTab = 'phone' | 'alpr' | 'inquiry' | 'foia' | 'watchlist';
+export type AppTab = 'phone' | 'alpr' | 'batch' | 'inquiry' | 'foia' | 'watchlist';
 
 interface NavbarProps {
   activeTab: AppTab;
@@ -66,6 +66,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             ALPR Audit
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('batch')}
+            className={`transition-colors whitespace-nowrap shrink-0 pb-0.5 border-b-2 cursor-pointer ${
+              activeTab === 'batch'
+                ? 'border-cyan-400 text-white font-semibold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Batch
           </button>
           <button
             type="button"
@@ -156,6 +167,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           className={`whitespace-nowrap shrink-0 ${activeTab === 'alpr' ? 'text-cyan-400 font-semibold' : ''}`}
         >
           ALPR Audit
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('batch')}
+          className={`whitespace-nowrap shrink-0 ${activeTab === 'batch' ? 'text-cyan-400 font-semibold' : ''}`}
+        >
+          Batch
         </button>
         <button
           type="button"
