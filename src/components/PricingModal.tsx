@@ -21,6 +21,12 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!isOpen) {
+      setJustUpgraded(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };

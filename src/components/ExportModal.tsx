@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Copy, Check, Download, Printer, FileText } from 'lucide-react';
 import { PhoneLookupResult, VehicleAlprAuditResult } from '../types';
 import { generateDossierPdf } from '../utils/pdfReport';
@@ -22,6 +22,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [pdfNotice, setPdfNotice] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    if (copyTimerRef.current) {
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = null;
+    }
+    setCopied(false);
+    setPdfNotice(null);
+    setPdfError(null);
+    setIsGeneratingPdf(false);
+  }, [isOpen, exportData]);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const { timestamp, reportId } = useMemo(() => {
     return {
@@ -136,11 +161,16 @@ END OF AUDIT - GENERATED VIA VIGILALPR / TRACEID PLATFORM
       ? JSON.stringify(exportData.content, null, 2)
       : generateReportText();
 
+  const scheduleCopyReset = () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(displayText);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleCopyReset();
     } catch {
       try {
         const el = document.createElement('textarea');
@@ -153,7 +183,7 @@ END OF AUDIT - GENERATED VIA VIGILALPR / TRACEID PLATFORM
         document.execCommand('copy');
         document.body.removeChild(el);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        scheduleCopyReset();
       } catch {
         setCopied(false);
       }
@@ -164,6 +194,10 @@ END OF AUDIT - GENERATED VIA VIGILALPR / TRACEID PLATFORM
     setIsGeneratingPdf(true);
     setPdfNotice(null);
     setPdfError(null);
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
     try {
       const fileName = generateDossierPdf({
         reportId,
@@ -171,7 +205,7 @@ END OF AUDIT - GENERATED VIA VIGILALPR / TRACEID PLATFORM
         exportData,
       });
       setPdfNotice(`Downloaded ${fileName}`);
-      setTimeout(() => setPdfNotice(null), 4000);
+      noticeTimerRef.current = setTimeout(() => setPdfNotice(null), 4000);
     } catch (err) {
       setPdfError(
         err instanceof Error ? err.message : 'Unable to build PDF report. Please retry.'

@@ -1,3 +1,5 @@
+import { PhoneLookupResult } from '../types';
+
 export interface WebSource {
   title: string;
   uri: string;
@@ -14,6 +16,15 @@ export interface WebLookupResponse {
 export interface AccessStatusResponse {
   customSecretConfigured: boolean;
   demoPasscode: string | null;
+}
+
+export class PhoneTraceRequestError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'PhoneTraceRequestError';
+    this.status = status;
+  }
 }
 
 async function fetchWithTimeout(
@@ -63,6 +74,64 @@ async function postWebLookup<TBody extends Record<string, unknown>>(
     searchMode: data.searchMode,
     notice: data.notice,
   };
+}
+
+export async function fetchMapsClientConfig(): Promise<{
+  configured: boolean;
+  apiKey: string | null;
+}> {
+  const envKey = (
+    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+      ?.VITE_GOOGLE_MAPS_API_KEY || ''
+  ).trim();
+  if (envKey && envKey !== 'MY_GOOGLE_MAPS_API_KEY') {
+    return { configured: true, apiKey: envKey };
+  }
+
+  try {
+    const res = await fetchWithTimeout('/api/maps/config', { method: 'GET' }, 6000);
+    if (!res.ok) return { configured: false, apiKey: null };
+    const data = (await res.json().catch(() => null)) as {
+      configured?: boolean;
+      apiKey?: string | null;
+    } | null;
+    const key = typeof data?.apiKey === 'string' ? data.apiKey.trim() : '';
+    return {
+      configured: Boolean(key),
+      apiKey: key || null,
+    };
+  } catch {
+    return { configured: false, apiKey: null };
+  }
+}
+
+export async function fetchPhoneTrace(phoneNumber: string): Promise<PhoneLookupResult> {
+  const res = await fetchWithTimeout(
+    '/api/phone-trace',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber }),
+    },
+    12000
+  );
+
+  const data = (await res.json().catch(() => ({}))) as Partial<PhoneLookupResult> & {
+    error?: string;
+  };
+
+  if (!res.ok) {
+    throw new PhoneTraceRequestError(
+      data.error || `Phone trace failed with status ${res.status}`,
+      res.status
+    );
+  }
+
+  if (data.location?.geocodeQuotaExceeded && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+  }
+
+  return data as PhoneLookupResult;
 }
 
 export function fetchPhoneWebOsint(params: {

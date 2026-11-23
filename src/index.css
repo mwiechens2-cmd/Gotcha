@@ -21,3 +21,35 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
+
+/* Dark theme overrides for interactive Leaflet ALPR map */
+.vigil-alpr-map .leaflet-popup-content-wrapper,
+.vigil-alpr-map .leaflet-popup-tip {
+  background: #0d1322;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+}
+
+.vigil-alpr-map .leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.4;
+}
+
+.vigil-alpr-map .leaflet-popup-close-button {
+  color: #94a3b8;
+}
+
+.vigil-alpr-map .leaflet-popup-close-button:hover {
+  color: #ffffff;
+}
+
+.vigil-alpr-map .leaflet-control-attribution {
+  background: rgba(8, 12, 20, 0.78);
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.vigil-alpr-map .leaflet-control-attribution a {
+  color: #67e8f9;
+}

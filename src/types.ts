@@ -43,6 +43,20 @@ export interface PhoneLookupResult {
     timeZone: string;
     rateCenter: string;
     coordinates: [number, number];
+    rateCenterCoordinates?: [number, number];
+    geocodeAccuracy?: 'rooftop_address' | 'approximate_address' | 'rate_center';
+    formattedAddress?: string;
+    geocodeQuotaExceeded?: boolean;
+  };
+  ownerSummary?: {
+    status: 'verified_owner' | 'cnam_only' | 'reserved_block' | 'cpni_protected';
+    ownerName: string;
+    ownerType: 'Individual' | 'Corporate' | 'Government / Public' | 'Unlisted';
+    streetAddress?: string;
+    cityStateZip?: string;
+    sourceLabel: string;
+    sourceUrl?: string;
+    note?: string;
   };
   dossier?: {
     subscriberName: string;

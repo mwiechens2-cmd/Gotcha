@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -97,6 +97,10 @@ export const FirebaseProvider: React.FC<{
   const [savedAlprAudits, setSavedAlprAudits] = useState<SavedAlprAuditRecord[]>([]);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItemRecord[]>([]);
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
+  const latestTierRef = useRef(currentTier);
+  const onTierHydratedRef = useRef(onTierHydrated);
+  latestTierRef.current = currentTier;
+  onTierHydratedRef.current = onTierHydrated;
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
@@ -114,9 +118,9 @@ export const FirebaseProvider: React.FC<{
 
       setDataLoading(true);
       try {
-        const profile = await ensureUserProfile(nextUser, currentTier);
+        const profile = await ensureUserProfile(nextUser, latestTierRef.current);
         setUserProfile(profile);
-        onTierHydrated(profile.tier);
+        onTierHydratedRef.current(profile.tier);
       } catch (err) {
         setFirebaseError(formatUserFacingError(err));
       } finally {
@@ -125,7 +129,6 @@ export const FirebaseProvider: React.FC<{
     });
 
     return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Attach real-time Firestore listeners only when auth is ready and user is authenticated

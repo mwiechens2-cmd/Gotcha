@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { generatePhoneLookup, generateVehicleAudit } from '../data/mockData';
+import { fetchPhoneTrace, PhoneTraceRequestError } from '../utils/webLookup';
 import {
   SavedAlprAuditRecord,
   SavedPhoneLookupRecord,
@@ -76,31 +77,41 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
     let computedTarget = newTarget.trim();
     let computedStatus = 'Monitored';
 
-    if (newType === 'phone') {
-      const digits = computedTarget.replace(/\D/g, '');
-      if (digits.length < 7 || digits.length > 15) {
-        setFormError('Enter a valid 7 to 15-digit phone number.');
-        return;
-      }
-      const lookup = generatePhoneLookup(computedTarget);
-      computedTarget = lookup.phoneNumber;
-      computedStatus = `${lookup.riskAnalysis.riskLevel} Risk (${lookup.riskAnalysis.spamScore}/100)`;
-    } else {
-      const cleaned = computedTarget.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-      if (cleaned.length < 2 || cleaned.length > 10) {
-        setFormError('Enter a valid 2 to 10-character license plate.');
-        return;
-      }
-      const audit = generateVehicleAudit(cleaned, newState);
-      computedTarget = audit.plateNumber;
-      computedStatus =
-        audit.auditSummary.overallStatus === 'queried_active'
-          ? 'Active Query Logged'
-          : 'Passive Sightings Only';
-    }
-
     setIsAdding(true);
     try {
+      if (newType === 'phone') {
+        const hasPlus = computedTarget.startsWith('+');
+        const digits = computedTarget.replace(/\D/g, '');
+        if (digits.length < (hasPlus ? 7 : 10) || digits.length > 15) {
+          setFormError('Enter a valid phone number with area code (7 to 15 digits).');
+          return;
+        }
+        let lookup;
+        try {
+          lookup = await fetchPhoneTrace(computedTarget);
+        } catch (err) {
+          if (err instanceof PhoneTraceRequestError && err.status >= 400 && err.status < 500) {
+            setFormError(err.message);
+            return;
+          }
+          lookup = generatePhoneLookup(computedTarget);
+        }
+        computedTarget = lookup.phoneNumber;
+        computedStatus = `${lookup.riskAnalysis.riskLevel} Risk (${lookup.riskAnalysis.spamScore}/100)`;
+      } else {
+        const cleaned = computedTarget.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+        if (cleaned.length < 2 || cleaned.length > 10) {
+          setFormError('Enter a valid 2 to 10-character license plate.');
+          return;
+        }
+        const audit = generateVehicleAudit(cleaned, newState);
+        computedTarget = audit.plateNumber;
+        computedStatus =
+          audit.auditSummary.overallStatus === 'queried_active'
+            ? 'Active Query Logged'
+            : 'Passive Sightings Only';
+      }
+
       await addToWatchlist({
         itemType: newType,
         targetValue: computedTarget,
@@ -120,7 +131,12 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
     try {
       let nextStatus = item.lastStatus;
       if (item.itemType === 'phone') {
-        const res = generatePhoneLookup(item.targetValue);
+        let res;
+        try {
+          res = await fetchPhoneTrace(item.targetValue);
+        } catch {
+          res = generatePhoneLookup(item.targetValue);
+        }
         nextStatus = `${res.riskAnalysis.riskLevel} Risk (${res.riskAnalysis.spamScore}/100)`;
       } else {
         const res = generateVehicleAudit(item.targetValue, item.jurisdictionState || 'CA');

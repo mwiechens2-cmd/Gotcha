@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bookmark,
@@ -21,7 +21,13 @@ import {
   VehicleAlprAuditResult,
 } from '../types';
 import { generatePhoneLookup, generateVehicleAudit } from '../data/mockData';
-import { fetchAlprWebIntel, fetchPhoneWebOsint, WebLookupResponse } from '../utils/webLookup';
+import {
+  fetchAlprWebIntel,
+  fetchPhoneTrace,
+  fetchPhoneWebOsint,
+  PhoneTraceRequestError,
+  WebLookupResponse,
+} from '../utils/webLookup';
 import { useFirebase } from '../contexts/FirebaseContext';
 
 const US_STATES = [
@@ -223,7 +229,16 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const cancelRequestedRef = useRef(false);
+  const isMountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      cancelRequestedRef.current = true;
+    };
+  }, []);
 
   const isTierUnlocked = currentTier === 'investigator' || currentTier === 'enterprise';
   const isSensitiveUnlocked = isTierUnlocked && isPasscodeUnlocked;
@@ -284,18 +299,28 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
     const start = performance.now();
     try {
       if (item.targetType === 'phone') {
-        const result = generatePhoneLookup(item.normalizedTarget);
+        let result: PhoneLookupResult;
+        try {
+          result = await fetchPhoneTrace(item.rawInput);
+        } catch (err) {
+          if (err instanceof PhoneTraceRequestError && err.status >= 400 && err.status < 500) {
+            throw err;
+          }
+          result = generatePhoneLookup(item.normalizedTarget);
+        }
         let webIntel: WebLookupResponse | undefined;
 
         if (includeWebSearch) {
-          webIntel = await fetchPhoneWebOsint({
-            phoneNumber: result.phoneNumber,
-            formattedNational: result.formattedNational,
-            carrierName: result.carrier.name,
-            locationHint: `${result.location.city}, ${result.location.state}`,
-          });
-        } else {
-          await sleep(140);
+          try {
+            webIntel = await fetchPhoneWebOsint({
+              phoneNumber: result.phoneNumber,
+              formattedNational: result.formattedNational,
+              carrierName: result.carrier.name,
+              locationHint: `${result.location.city}, ${result.location.state}`,
+            });
+          } catch {
+            // Live web search is supplemental in batch mode
+          }
         }
 
         onRecordEvent('phone', result.phoneNumber.replace(/\D/g, ''));
@@ -313,9 +338,13 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
         let webIntel: WebLookupResponse | undefined;
 
         if (includeWebSearch) {
-          webIntel = await fetchAlprWebIntel({
-            state: audit.state,
-          });
+          try {
+            webIntel = await fetchAlprWebIntel({
+              state: audit.state,
+            });
+          } catch {
+            // Live web disclosures are supplemental in batch mode
+          }
         } else {
           await sleep(160);
         }
@@ -369,10 +398,13 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
       const finished = await executeSingleItem(current);
       workingList[i] = finished;
 
+      if (!isMountedRef.current) return;
       setQueue((prev) => prev.map((row) => (row.id === current.id ? finished : row)));
     }
 
-    setIsRunning(false);
+    if (isMountedRef.current) {
+      setIsRunning(false);
+    }
   };
 
   const handleRetrySingle = async (targetId: string) => {
@@ -443,6 +475,18 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
     const rows = completed.map((item) => {
       if (item.phoneResult) {
         const p = item.phoneResult;
+        const isPublicEntity =
+          p.ownerSummary?.status === 'verified_owner' && p.ownerSummary.ownerType !== 'Individual';
+        const showOwner = isSensitiveUnlocked || isPublicEntity;
+        const ownerDetail = showOwner
+          ? [
+              p.ownerSummary?.ownerName || p.dossier?.subscriberName,
+              p.ownerSummary?.streetAddress || p.dossier?.addressHistory?.[0]?.street,
+              p.ownerSummary?.cityStateZip,
+            ]
+              .filter(Boolean)
+              .join(' — ') || 'N/A'
+          : '[Redacted]';
         return [
           'Phone',
           p.formattedInternational,
@@ -450,7 +494,7 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
           p.riskAnalysis.riskLevel,
           `${p.riskAnalysis.activityCategory} (${p.lineType})`,
           `${p.riskAnalysis.spamScore}/100`,
-          isSensitiveUnlocked ? p.dossier?.subscriberName || 'N/A' : '[Redacted]',
+          ownerDetail,
           `${p.carrier.name} (${p.location.city}, ${p.location.state})`,
         ]
           .map(escapeCsv)
@@ -989,12 +1033,22 @@ export const BatchAuditView: React.FC<BatchAuditViewProps> = ({
                       <td className="py-3.5 px-4 font-mono text-[11px]">
                         {item.status !== 'completed' ? (
                           <span className="text-slate-600">—</span>
-                        ) : isSensitiveUnlocked ? (
-                          <span className="text-slate-200">
-                            {p
-                              ? p.dossier?.subscriberName || 'No subscriber listed'
-                              : v?.queryAuditLog[0]?.officerBadgeOrCaseId || 'No badge ref'}
-                          </span>
+                        ) : isSensitiveUnlocked ||
+                          (p?.ownerSummary?.status === 'verified_owner' &&
+                            p.ownerSummary.ownerType !== 'Individual') ? (
+                          <div className="space-y-0.5 text-slate-200">
+                            <span className="block">
+                              {p
+                                ? p.ownerSummary?.ownerName || p.dossier?.subscriberName || 'No subscriber listed'
+                                : v?.queryAuditLog[0]?.officerBadgeOrCaseId || 'No badge ref'}
+                            </span>
+                            {p?.ownerSummary?.streetAddress && (
+                              <span className="block text-[10px] text-slate-400">
+                                {p.ownerSummary.streetAddress}
+                                {p.ownerSummary.cityStateZip ? `, ${p.ownerSummary.cityStateZip}` : ''}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <button
                             type="button"

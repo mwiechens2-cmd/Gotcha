@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Copy, Check, Download, FileText, Globe } from 'lucide-react';
 import { VehicleAlprAuditResult } from '../types';
 import { fetchFoiaPortalWeb, WebLookupResponse } from '../utils/webLookup';
@@ -21,6 +21,25 @@ export const FoiaModal: React.FC<FoiaModalProps> = ({
   const [webLoading, setWebLoading] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
   const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
+
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lookupTokenRef = useRef(0);
+
+  useEffect(() => {
+    lookupTokenRef.current += 1;
+    setCopied(false);
+    setAgencyQuery('');
+    setWebLoading(false);
+    setWebError(null);
+    setWebIntel(null);
+  }, [isOpen, auditData?.plateNumber, auditData?.state]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      lookupTokenRef.current += 1;
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -81,11 +100,16 @@ Vehicle Registered Owner / Representative
 Contact Phone: Available on File
 `;
 
+  const scheduleCopiedReset = () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(letterText);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      scheduleCopiedReset();
     } catch {
       try {
         const el = document.createElement('textarea');
@@ -98,7 +122,7 @@ Contact Phone: Available on File
         document.execCommand('copy');
         document.body.removeChild(el);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        scheduleCopiedReset();
       } catch {
         setCopied(false);
       }
@@ -118,6 +142,7 @@ Contact Phone: Available on File
   const handleFindPortal = async () => {
     const targetAgency =
       agencyQuery.trim() || auditData?.reciprocalAgencies[0]?.agencyName || `${state} Police Records`;
+    const token = ++lookupTokenRef.current;
     setWebLoading(true);
     setWebError(null);
     try {
@@ -125,11 +150,15 @@ Contact Phone: Available on File
         agencyOrCity: targetAgency,
         state,
       });
+      if (token !== lookupTokenRef.current) return;
       setWebIntel(response);
     } catch (err) {
+      if (token !== lookupTokenRef.current) return;
       setWebError(err instanceof Error ? err.message : 'Unable to locate agency FOIA portal.');
     } finally {
-      setWebLoading(false);
+      if (token === lookupTokenRef.current) {
+        setWebLoading(false);
+      }
     }
   };
 

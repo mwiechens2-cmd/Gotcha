@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Car,
   Search,
@@ -12,11 +12,15 @@ import {
   Bookmark,
   Check,
   Bell,
+  Loader2,
+  MapPin,
+  X,
 } from 'lucide-react';
 import { VehicleAlprAuditResult, SubscriptionTierType } from '../types';
 import { PRESET_PLATES, generateVehicleAudit } from '../data/mockData';
 import { fetchAlprWebIntel, WebLookupResponse } from '../utils/webLookup';
 import { WebIntelPanel } from './WebIntelPanel';
+import { AlprSightingMap } from './AlprSightingMap';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { buildAlprAuditId, buildWatchlistId } from '../services/firestoreService';
 
@@ -39,6 +43,8 @@ const US_STATES = [
   'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 ];
 
+const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
 export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   currentTier,
   isPasscodeUnlocked,
@@ -54,6 +60,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   const [inputPlate, setInputPlate] = useState(activeAudit.plateNumber);
   const [selectedState, setSelectedState] = useState(activeAudit.state);
   const [isAuditing, setIsAuditing] = useState(false);
+  const [auditStage, setAuditStage] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const [cityOrCounty, setCityOrCounty] = useState('');
@@ -62,16 +69,108 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
   const [webIntel, setWebIntel] = useState<WebLookupResponse | null>(null);
   const [savingAudit, setSavingAudit] = useState(false);
   const [watchingPlate, setWatchingPlate] = useState(false);
+  const [lastAuditMeta, setLastAuditMeta] = useState<{
+    plate: string;
+    state: string;
+    completedAt: string;
+    auditId: string;
+  } | null>(null);
+  const [selectedSightingId, setSelectedSightingId] = useState<string | null>(
+    activeAudit.cameraSightings[0]?.id ?? null
+  );
+  const [mapFocusNonce, setMapFocusNonce] = useState(0);
+
+  const auditRunIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
+  const mapSectionRef = useRef<HTMLDivElement | null>(null);
+  const webPanelAnchorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setInputPlate(activeAudit.plateNumber);
     setSelectedState(activeAudit.state);
-  }, [activeAudit.plateNumber, activeAudit.state]);
+    setSelectedSightingId(activeAudit.cameraSightings[0]?.id ?? null);
+    setMapFocusNonce(0);
+  }, [activeAudit.plateNumber, activeAudit.state, activeAudit.cameraSightings]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      auditRunIdRef.current += 1;
+    };
+  }, []);
 
   const currentAuditId = buildAlprAuditId(activeAudit.plateNumber, activeAudit.state);
   const currentWatchId = buildWatchlistId('plate', activeAudit.plateNumber, activeAudit.state);
   const isSaved = savedAlprAudits.some((item) => item.id === currentAuditId);
   const isWatched = watchlistItems.some((item) => item.id === currentWatchId);
+
+  const runLiveWebAlprSearch = async (targetAudit = activeAudit, runId?: number) => {
+    const activeId = runId ?? auditRunIdRef.current;
+    setWebLoading(true);
+    setWebError(null);
+    try {
+      const response = await fetchAlprWebIntel({
+        state: targetAudit.state,
+        cityOrCounty: cityOrCounty.trim() || undefined,
+      });
+      if (!isMountedRef.current || activeId !== auditRunIdRef.current) return;
+      setWebIntel(response);
+    } catch (err) {
+      if (!isMountedRef.current || activeId !== auditRunIdRef.current) return;
+      setWebError(err instanceof Error ? err.message : 'Unable to fetch ALPR web disclosures.');
+    } finally {
+      if (isMountedRef.current && activeId === auditRunIdRef.current) {
+        setWebLoading(false);
+      }
+    }
+  };
+
+  const executeAuditForPlate = async (rawPlate: string, stateCode: string) => {
+    const runId = ++auditRunIdRef.current;
+    setValidationError(null);
+    setWebIntel(null);
+    setWebError(null);
+    setIsAuditing(true);
+    setAuditStage('Querying regional Flock Falcon & municipal ALPR camera nodes...');
+
+    try {
+      await delay(180);
+      if (!isMountedRef.current || runId !== auditRunIdRef.current) return;
+
+      setAuditStage('Auditing law enforcement inquiry logs and statutory retention windows...');
+      await delay(180);
+      if (!isMountedRef.current || runId !== auditRunIdRef.current) return;
+
+      const result = generateVehicleAudit(rawPlate, stateCode);
+      onAuditChange(result);
+      setInputPlate(result.plateNumber);
+      setSelectedState(result.state);
+      setLastAuditMeta({
+        plate: result.plateNumber,
+        state: result.state,
+        completedAt: new Date().toLocaleTimeString(),
+        auditId: `AUD-${String(runId).padStart(3, '0')}`,
+      });
+
+      if (typeof resultsAnchorRef.current?.scrollIntoView === 'function') {
+        resultsAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      setIsAuditing(false);
+      setAuditStage('');
+      void runLiveWebAlprSearch(result, runId);
+    } catch (err) {
+      if (!isMountedRef.current || runId !== auditRunIdRef.current) return;
+      setValidationError(
+        err instanceof Error ? err.message : 'Unable to complete license plate audit.'
+      );
+      setIsAuditing(false);
+      setAuditStage('');
+    }
+  };
 
   const handleAudit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -81,29 +180,13 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
       return;
     }
 
-    setValidationError(null);
-    setWebIntel(null);
-    setWebError(null);
-    setIsAuditing(true);
-    setTimeout(() => {
-      const result = generateVehicleAudit(cleaned, selectedState);
-      onAuditChange(result);
-      setIsAuditing(false);
-    }, 300);
+    void executeAuditForPlate(cleaned, selectedState);
   };
 
   const handleSelectPreset = (presetPlate: string, presetState: string) => {
-    setValidationError(null);
-    setWebIntel(null);
-    setWebError(null);
     setInputPlate(presetPlate);
     setSelectedState(presetState);
-    setIsAuditing(true);
-    setTimeout(() => {
-      const result = generateVehicleAudit(presetPlate, presetState);
-      onAuditChange(result);
-      setIsAuditing(false);
-    }, 200);
+    void executeAuditForPlate(presetPlate, presetState);
   };
 
   const handleSaveAudit = async () => {
@@ -130,22 +213,6 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
       });
     } finally {
       setWatchingPlate(false);
-    }
-  };
-
-  const runLiveWebAlprSearch = async () => {
-    setWebLoading(true);
-    setWebError(null);
-    try {
-      const response = await fetchAlprWebIntel({
-        state: activeAudit.state,
-        cityOrCounty: cityOrCounty.trim() || undefined,
-      });
-      setWebIntel(response);
-    } catch (err) {
-      setWebError(err instanceof Error ? err.message : 'Unable to fetch ALPR web disclosures.');
-    } finally {
-      setWebLoading(false);
     }
   };
 
@@ -179,6 +246,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               <Car className="h-4 w-4" />
             </div>
             <input
+              ref={inputRef}
               type="text"
               value={inputPlate}
               onChange={(e) => {
@@ -186,8 +254,22 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
                 if (validationError) setValidationError(null);
               }}
               placeholder="Enter License Plate (e.g. 7XYZ892)"
-              className="w-full rounded-lg border border-slate-700 bg-[#080c14] py-2.5 pl-10 pr-4 text-sm font-mono tracking-wider font-bold text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 uppercase"
+              className="w-full rounded-lg border border-slate-700 bg-[#080c14] py-2.5 pl-10 pr-9 text-sm font-mono tracking-wider font-bold text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 uppercase"
             />
+            {inputPlate && !isAuditing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setInputPlate('');
+                  setValidationError(null);
+                  inputRef.current?.focus();
+                }}
+                aria-label="Clear license plate"
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           <div className="w-full sm:w-40 shrink-0">
@@ -210,7 +292,11 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             disabled={isAuditing}
             className="flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
           >
-            <Search className="h-4 w-4" />
+            {isAuditing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
             <span>{isAuditing ? 'Scanning ALPR Gateways...' : 'Audit License Plate'}</span>
           </button>
         </form>
@@ -225,8 +311,9 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             <button
               key={`${preset.plate}_${preset.state}`}
               type="button"
+              disabled={isAuditing}
               onClick={() => handleSelectPreset(preset.plate, preset.state)}
-              className={`rounded-md border px-2.5 py-1 font-mono transition-colors cursor-pointer text-[12px] ${
+              className={`rounded-md border px-2.5 py-1 font-mono transition-colors cursor-pointer text-[12px] disabled:opacity-50 ${
                 activeAudit.plateNumber === preset.plate && activeAudit.state === preset.state
                   ? 'border-cyan-500/80 bg-cyan-950/40 text-cyan-300'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:text-white'
@@ -236,6 +323,58 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Live Audit Progress & Completion Banner */}
+      <div ref={resultsAnchorRef}>
+        {isAuditing ? (
+          <div className="rounded-xl border border-cyan-500/40 bg-cyan-950/25 px-4 py-3 flex items-center gap-3 text-xs text-cyan-200 font-mono">
+            <Loader2 className="h-4 w-4 text-cyan-400 animate-spin shrink-0" />
+            <span>
+              {auditStage || 'Querying regional Flock Safety & ALPR gateways...'}
+            </span>
+          </div>
+        ) : lastAuditMeta ? (
+          <div className="rounded-xl border border-emerald-800/50 bg-emerald-950/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-emerald-300 font-mono">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              <span>
+                Audit <span className="text-slate-400">({lastAuditMeta.auditId})</span> completed for{' '}
+                <strong className="text-white">
+                  [{lastAuditMeta.plate}] ({lastAuditMeta.state})
+                </strong>{' '}
+                at {lastAuditMeta.completedAt}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-mono">
+              <span className="text-slate-400">
+                {webLoading
+                  ? 'Searching EFF Atlas & public ALPR disclosures...'
+                  : webIntel
+                  ? `Live ALPR disclosures updated (${webIntel.sources.length} sources)`
+                  : webError
+                  ? 'Live ALPR web search unavailable (plate audit ready)'
+                  : 'ALPR sightings & query ledger updated'}
+              </span>
+              {(webLoading || webIntel || webError) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof webPanelAnchorRef.current?.scrollIntoView === 'function') {
+                      webPanelAnchorRef.current.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'nearest',
+                      });
+                    }
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                >
+                  View Web Results
+                </button>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* CORE FOCAL ANSWER: "Have I been looked into by Flock camera?" */}
@@ -370,6 +509,30 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
         </div>
       </div>
 
+      {/* Interactive Geospatial Sighting Map */}
+      <div ref={mapSectionRef}>
+        <AlprSightingMap
+          plateNumber={activeAudit.plateNumber}
+          stateCode={activeAudit.state}
+          overallStatus={activeAudit.auditSummary.overallStatus}
+          sightings={visibleSightings}
+          totalSightingsCount={activeAudit.cameraSightings.length}
+          selectedSightingId={selectedSightingId}
+          focusNonce={mapFocusNonce}
+          onSelectSighting={(sightingId) => setSelectedSightingId(sightingId)}
+          isLockedPreview={!isFullAuditUnlocked}
+          onExportPdf={() => {
+            if (!isTierUnlocked) {
+              onOpenPricing();
+            } else if (!isPasscodeUnlocked) {
+              onOpenPasscodeModal();
+            } else {
+              onOpenExport({ type: 'alpr', content: activeAudit });
+            }
+          }}
+        />
+      </div>
+
       {/* Main Grid: Query Details & Camera Sightings */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Query Audit Logs, Retention Analysis & Live Web Intel (6 Cols) */}
@@ -497,7 +660,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
           </div>
 
           {/* Live Web Flock & ALPR Jurisdiction Disclosures */}
-          <div className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
+          <div ref={webPanelAnchorRef} className="rounded-xl border border-slate-800 bg-[#0d1322] p-6 space-y-4">
             <div className="border-b border-slate-800/80 pb-3">
               <h3 className="text-base font-semibold text-white">
                 Live Web Flock & ALPR Transparency Lookup
@@ -517,8 +680,8 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               />
               <button
                 type="button"
-                onClick={runLiveWebAlprSearch}
-                disabled={webLoading}
+                onClick={() => void runLiveWebAlprSearch(activeAudit)}
+                disabled={webLoading || isAuditing}
                 className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-3.5 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-900/50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
               >
                 <Globe className="h-3.5 w-3.5" />
@@ -531,7 +694,7 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
               isLoading={webLoading}
               error={webError}
               data={webIntel}
-              onRetry={runLiveWebAlprSearch}
+              onRetry={() => void runLiveWebAlprSearch(activeAudit)}
               emptyPrompt={`Run a live web search to inspect published Flock Safety transparency portals and ALPR policies for ${activeAudit.state}.`}
             />
           </div>
@@ -556,47 +719,82 @@ export const AlprAuditView: React.FC<AlprAuditViewProps> = ({
 
             {/* Sighting Timeline Cards */}
             <div className="space-y-3.5">
-              {visibleSightings.map((sighting) => (
-                <div
-                  key={sighting.id}
-                  className="rounded-lg border border-slate-800/90 bg-[#080c14]/70 p-4 space-y-2 text-xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-mono text-xs font-bold text-white tracking-wide">
-                      {sighting.cameraName}
-                    </span>
-                    <span className="font-mono text-cyan-400 tabular-nums text-[11px]">
-                      {new Date(sighting.timestamp).toLocaleString()}
-                    </span>
-                  </div>
+              {visibleSightings.map((sighting, idx) => {
+                const isSelected = sighting.id === selectedSightingId;
+                return (
+                  <div
+                    key={sighting.id}
+                    className={`rounded-lg border p-4 space-y-2 text-xs transition-colors ${
+                      isSelected
+                        ? 'border-cyan-500/70 bg-cyan-950/20'
+                        : 'border-slate-800/90 bg-[#080c14]/70'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500/15 border border-cyan-500/40 font-mono text-[10px] font-bold text-cyan-300 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="font-mono text-xs font-bold text-white tracking-wide">
+                          {sighting.cameraName}
+                        </span>
+                      </div>
+                      <span className="font-mono text-cyan-400 tabular-nums text-[11px]">
+                        {new Date(sighting.timestamp).toLocaleString()}
+                      </span>
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-800/60">
-                    <div>
-                      <span className="text-slate-400 block">Sensor Node ID</span>
-                      <span className="font-mono text-slate-200">{sighting.cameraId}</span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-800/60">
+                      <div>
+                        <span className="text-slate-400 block">Sensor Node ID</span>
+                        <span className="font-mono text-slate-200">{sighting.cameraId}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Hardware Model</span>
+                        <span className="font-mono text-emerald-400 font-semibold">{sighting.cameraType}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Operating Agency</span>
+                        <span className="text-slate-300 truncate block">{sighting.municipalityAgency}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Location</span>
+                        <span className="text-slate-300 truncate block">{sighting.intersectionOrLocation}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-400 block">Hardware Model</span>
-                      <span className="font-mono text-emerald-400 font-semibold">{sighting.cameraType}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Operating Agency</span>
-                      <span className="text-slate-300 truncate block">{sighting.municipalityAgency}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block">Location</span>
-                      <span className="text-slate-300 truncate block">{sighting.intersectionOrLocation}</span>
-                    </div>
-                  </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-[11px] font-mono text-slate-400">
-                    <span>Heading: {sighting.directionOfTravel} (Lane {sighting.laneNumber})</span>
-                    <span>Speed: ~{sighting.speedEstimateMph} MPH</span>
-                    <span>Confidence: {sighting.captureConfidence}%</span>
-                    <span className="text-amber-400">Purge in: {sighting.retentionDaysRemaining}d</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-[11px] font-mono text-slate-400">
+                      <span>Heading: {sighting.directionOfTravel} (Lane {sighting.laneNumber})</span>
+                      <span>Speed: ~{sighting.speedEstimateMph} MPH</span>
+                      <span>Confidence: {sighting.captureConfidence}%</span>
+                      <span className="text-amber-400">Purge in: {sighting.retentionDaysRemaining}d</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800/60 text-[11px]">
+                      <span className="font-mono text-slate-400 tabular-nums">
+                        GPS: {sighting.coordinates[0].toFixed(4)}, {sighting.coordinates[1].toFixed(4)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSightingId(sighting.id);
+                          setMapFocusNonce((n) => n + 1);
+                          if (typeof mapSectionRef.current?.scrollIntoView === 'function') {
+                            mapSectionRef.current.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'nearest',
+                            });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                      >
+                        <MapPin className="h-3 w-3" />
+                        <span>Locate on Map</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Tier or Passcode Lock Teaser */}

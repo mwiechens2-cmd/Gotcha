@@ -69,62 +69,74 @@ export function buildWatchlistId(
   return sanitizeDocId(`watch_plate_${cleanState}_${cleanPlate || 'plt'}`, 'watch_plate');
 }
 
-export async function ensureUserProfile(
+const inFlightProfileEnsures = new Map<string, Promise<UserProfileRecord>>();
+
+export function ensureUserProfile(
   user: User,
   fallbackTier: SubscriptionTierType
 ): Promise<UserProfileRecord> {
-  const path = `users/${user.uid}`;
-  const ref = doc(db, 'users', user.uid);
+  const existing = inFlightProfileEnsures.get(user.uid);
+  if (existing) return existing;
 
-  let snap;
-  try {
-    snap = await getDoc(ref);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
+  const task = (async (): Promise<UserProfileRecord> => {
+    const path = `users/${user.uid}`;
+    const ref = doc(db, 'users', user.uid);
 
-  if (snap.exists()) {
-    const data = snap.data() as UserProfileRecord;
-    const validTier = ALLOWED_TIERS.includes(data.tier) ? data.tier : fallbackTier;
-    return {
-      ...data,
-      tier: validTier,
+    let snap;
+    try {
+      snap = await getDoc(ref);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+    }
+
+    if (snap.exists()) {
+      const data = snap.data() as UserProfileRecord;
+      const validTier = ALLOWED_TIERS.includes(data.tier) ? data.tier : fallbackTier;
+      return {
+        ...data,
+        tier: validTier,
+      };
+    }
+
+    const email = clampText(user.email || '', USER_PROPS.email.maxLength);
+    if (!email) {
+      throw new Error('Google account is missing a verified email address.');
+    }
+
+    const displayName = clampText(
+      user.displayName || email.split('@')[0] || 'Investigator',
+      USER_PROPS.displayName.maxLength,
+      'Investigator'
+    );
+    const tier: SubscriptionTierType = ALLOWED_TIERS.includes(fallbackTier) ? fallbackTier : 'explorer';
+
+    const payload = {
+      uid: user.uid,
+      email,
+      displayName,
+      tier,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
-  }
 
-  const email = clampText(user.email || '', USER_PROPS.email.maxLength);
-  if (!email) {
-    throw new Error('Google account is missing a verified email address.');
-  }
+    try {
+      await setDoc(ref, payload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
 
-  const displayName = clampText(
-    user.displayName || email.split('@')[0] || 'Investigator',
-    USER_PROPS.displayName.maxLength,
-    'Investigator'
-  );
-  const tier: SubscriptionTierType = ALLOWED_TIERS.includes(fallbackTier) ? fallbackTier : 'explorer';
+    return {
+      uid: user.uid,
+      email,
+      displayName,
+      tier,
+    };
+  })().finally(() => {
+    inFlightProfileEnsures.delete(user.uid);
+  });
 
-  const payload = {
-    uid: user.uid,
-    email,
-    displayName,
-    tier,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  try {
-    await setDoc(ref, payload);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-
-  return {
-    uid: user.uid,
-    email,
-    displayName,
-    tier,
-  };
+  inFlightProfileEnsures.set(user.uid, task);
+  return task;
 }
 
 export async function persistUserTier(uid: string, nextTier: SubscriptionTierType): Promise<void> {

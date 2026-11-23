@@ -57,6 +57,16 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
     demoPasscode: 'VIGIL-2026',
   });
 
+  const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    const onQuotaExceeded = () => setMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', onQuotaExceeded);
+    return () => {
+      window.removeEventListener('gmp-quota-exceeded', onQuotaExceeded);
+    };
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetchAccessStatus()
@@ -105,6 +115,10 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
     | { type: 'alpr'; content: VehicleAlprAuditResult }
     | null
   >(null);
+  const [externalPhoneRequest, setExternalPhoneRequest] = useState<{
+    phoneNumber: string;
+    requestId: number;
+  } | null>(null);
 
   const [foiaAgencySearch, setFoiaAgencySearch] = useState('');
   const [foiaWebLoading, setFoiaWebLoading] = useState(false);
@@ -146,7 +160,10 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
   };
 
   const handleOpenPhoneFromWorkspace = (phoneNumber: string) => {
-    handlePhoneResultChange(generatePhoneLookup(phoneNumber));
+    setExternalPhoneRequest((prev) => ({
+      phoneNumber,
+      requestId: (prev?.requestId ?? 0) + 1,
+    }));
     setActiveTab('phone');
   };
 
@@ -178,7 +195,36 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
   };
 
   return (
-    <div className="min-h-screen bg-[#080c14] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="relative min-h-screen bg-[#080c14] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200 overflow-x-hidden">
+      {/* Full-viewport custom background artwork with measured contrast scrim */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden print:hidden" aria-hidden="true">
+        <img
+          src="/assets/aistudio/IMG_20261119_014824_d9b5ae83.png"
+          alt=""
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-cover object-center opacity-40"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#080c14]/75 via-[#080c14]/65 to-[#080c14]/90" />
+      </div>
+
+      {/* Google Maps Platform Demo Quota Notice (Case A Defense) */}
+      {mapsQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
+
       {/* Top Bar Navigation (Strict 3-Zone Contract) */}
       <Navbar
         activeTab={activeTab}
@@ -189,7 +235,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
 
       {/* Firestore Error Notification Banner */}
       {firebaseError && (
-        <div className="max-w-7xl w-full mx-auto px-4 pt-4 sm:px-6">
+        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 pt-4 sm:px-6">
           <div className="rounded-lg border border-rose-800/60 bg-rose-950/40 px-4 py-3 flex items-start justify-between gap-3 text-xs text-rose-200">
             <div className="flex items-start gap-2.5">
               <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
@@ -218,9 +264,9 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
       )}
 
       {/* Main Viewport Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 space-y-6">
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 py-8 sm:px-6 space-y-6">
         {/* Compact OSINT Access Vault Bar */}
-        <div className="rounded-xl border border-slate-800 bg-[#0d1322] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="rounded-xl border border-slate-800 bg-[#0d1322]/90 backdrop-blur-md px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5 text-slate-300">
             {isPasscodeUnlocked ? (
               <Unlock className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
@@ -281,6 +327,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
             onOpenPasscodeModal={() => setIsPasscodeOpen(true)}
             onLockPasscode={handleLockPasscode}
             onOpenExport={handleOpenExport}
+            externalTraceRequest={externalPhoneRequest}
           />
         )}
 
@@ -441,7 +488,7 @@ const AppWorkspace: React.FC<AppWorkspaceProps> = ({ currentTier, setCurrentTier
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-[#080c14] py-8 mt-12 text-xs text-slate-400">
+      <footer className="relative z-10 border-t border-slate-800/80 bg-[#080c14]/85 backdrop-blur-md py-8 mt-12 text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="font-bold text-white tracking-tight">VigilALPR / TraceID</span>
