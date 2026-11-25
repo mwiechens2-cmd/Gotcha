@@ -119,7 +119,7 @@ service cloud.firestore {
         && data.itemType in ['phone', 'plate']
         && data.targetValue is string && data.targetValue.size() >= 2 && data.targetValue.size() <= 32
         && data.targetValue.matches('^[A-Za-z0-9+()\\s\\-]{2,32}$')
-        && (!('jurisdictionState' in data) || (data.jurisdictionState is string && data.jurisdictionState.matches('^([A-Z]{2})?$')))
+        && (!('jurisdictionState' in data) || (data.jurisdictionState is string && data.jurisdictionState.size() <= 2 && data.jurisdictionState.matches('^([A-Z]{2})?$')))
         && data.label is string && data.label.size() >= 1 && data.label.size() <= 80
         && data.lastStatus is string && data.lastStatus.size() >= 1 && data.lastStatus.size() <= 80
         && data.createdAt is timestamp
@@ -131,7 +131,7 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /users/{userId} {
       // Strictly isolate PII to verified owner; disallow collection-wide list scraping
-      allow get: if isValidId(userId) && isOwner(userId);
+      allow get: if isValidId(userId) && isVerifiedOwner(userId);
       allow list: if false;
 
       allow create: if isVerifiedOwner(userId)
@@ -153,8 +153,8 @@ service cloud.firestore {
 
       // Saved Reverse Phone OSINT Lookups
       match /phoneLookups/{lookupId} {
-        allow get: if isValidId(userId) && isValidId(lookupId) && isOwner(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(userId) && isValidId(lookupId) && isVerifiedOwner(userId) && parentUserExists(userId);
+        allow list: if isVerifiedOwner(userId) && existing().ownerId == request.auth.uid;
 
         allow create: if isVerifiedOwner(userId)
           && isValidId(userId)
@@ -174,15 +174,16 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'formattedNational', 'carrierName', 'lineType', 'spamScore',
             'riskLevel', 'subscriberPreview', 'webSummary', 'savedAt'
-          ]);
+          ])
+          && parentUserExists(userId);
 
-        allow delete: if isValidId(userId) && isValidId(lookupId) && isVerifiedOwner(userId);
+        allow delete: if isValidId(userId) && isValidId(lookupId) && isVerifiedOwner(userId) && parentUserExists(userId);
       }
 
       // Saved Flock Safety & ALPR Vehicle Audits
       match /alprAudits/{auditId} {
-        allow get: if isValidId(userId) && isValidId(auditId) && isOwner(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(userId) && isValidId(auditId) && isVerifiedOwner(userId) && parentUserExists(userId);
+        allow list: if isVerifiedOwner(userId) && existing().ownerId == request.auth.uid;
 
         allow create: if isVerifiedOwner(userId)
           && isValidId(userId)
@@ -203,15 +204,16 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'overallStatus', 'detections30Days', 'activeQueriesCount',
             'lastLocation', 'retentionStandard', 'savedAt'
-          ]);
+          ])
+          && parentUserExists(userId);
 
-        allow delete: if isValidId(userId) && isValidId(auditId) && isVerifiedOwner(userId);
+        allow delete: if isValidId(userId) && isValidId(auditId) && isVerifiedOwner(userId) && parentUserExists(userId);
       }
 
       // Monitored Watchlist (Phones & License Plates)
       match /watchlist/{itemId} {
-        allow get: if isValidId(userId) && isValidId(itemId) && isOwner(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(userId) && isValidId(itemId) && isVerifiedOwner(userId) && parentUserExists(userId);
+        allow list: if isVerifiedOwner(userId) && existing().ownerId == request.auth.uid;
 
         allow create: if isVerifiedOwner(userId)
           && isValidId(userId)
@@ -231,9 +233,10 @@ service cloud.firestore {
           && incoming().targetValue == existing().targetValue
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'lastStatus', 'updatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'lastStatus', 'updatedAt'])
+          && parentUserExists(userId);
 
-        allow delete: if isValidId(userId) && isValidId(itemId) && isVerifiedOwner(userId);
+        allow delete: if isValidId(userId) && isValidId(itemId) && isVerifiedOwner(userId) && parentUserExists(userId);
       }
     }
   }

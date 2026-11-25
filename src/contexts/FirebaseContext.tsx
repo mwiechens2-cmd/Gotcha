@@ -131,9 +131,9 @@ export const FirebaseProvider: React.FC<{
     return () => unsubscribe();
   }, []);
 
-  // Attach real-time Firestore listeners only when auth is ready and user is authenticated
+  // Attach real-time Firestore listeners only when auth is ready and verified user is authenticated
   useEffect(() => {
-    if (!authReady || !user) return;
+    if (!authReady || !user || !user.emailVerified) return;
 
     const uid = user.uid;
     const phonePath = `users/${uid}/phoneLookups`;
@@ -226,8 +226,11 @@ export const FirebaseProvider: React.FC<{
     if (!user) return;
     setFirebaseError(null);
     try {
-      await persistUserTier(user.uid, nextTier);
-      setUserProfile((prev) => (prev ? { ...prev, tier: nextTier } : prev));
+      const profile = await ensureUserProfile(user, nextTier);
+      if (profile.tier !== nextTier) {
+        await persistUserTier(user.uid, nextTier);
+      }
+      setUserProfile({ ...profile, tier: nextTier });
     } catch (err) {
       setFirebaseError(formatUserFacingError(err));
     }

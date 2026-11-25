@@ -29,11 +29,24 @@ const STATE_REGEX = new RegExp(ALPR_PROPS.state.pattern);
 const TARGET_REGEX = new RegExp(WATCH_PROPS.targetValue.pattern);
 
 const ALLOWED_TIERS: readonly SubscriptionTierType[] = USER_PROPS.tier.enum as SubscriptionTierType[];
+const ALLOWED_LINE_TYPES = PHONE_PROPS.lineType.enum as PhoneLookupResult['lineType'][];
+const ALLOWED_RISK_LEVELS = PHONE_PROPS.riskLevel.enum as PhoneLookupResult['riskAnalysis']['riskLevel'][];
+
+function assertValidId(value: string, fieldName: string): void {
+  if (!ID_REGEX.test(value)) {
+    throw new Error(`Invalid ${fieldName} identifier format.`);
+  }
+}
 
 function clampText(value: string, maxLen: number, fallback = ''): string {
   const cleaned = value.trim();
   if (!cleaned) return fallback;
   return cleaned.length > maxLen ? cleaned.slice(0, maxLen) : cleaned;
+}
+
+function clampFiniteInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function sanitizeDocId(raw: string, fallbackPrefix: string): string {
@@ -79,6 +92,7 @@ export function ensureUserProfile(
   if (existing) return existing;
 
   const task = (async (): Promise<UserProfileRecord> => {
+    assertValidId(user.uid, 'user');
     const path = `users/${user.uid}`;
     const ref = doc(db, 'users', user.uid);
 
@@ -98,9 +112,13 @@ export function ensureUserProfile(
       };
     }
 
-    const email = clampText(user.email || '', USER_PROPS.email.maxLength);
-    if (!email) {
-      throw new Error('Google account is missing a verified email address.');
+    if (!user.emailVerified) {
+      throw new Error('A verified Google email address is required to save records.');
+    }
+
+    const email = (user.email || '').trim();
+    if (email.length < USER_PROPS.email.minLength || email.length > USER_PROPS.email.maxLength) {
+      throw new Error('Google account is missing a valid email address.');
     }
 
     const displayName = clampText(
@@ -140,6 +158,7 @@ export function ensureUserProfile(
 }
 
 export async function persistUserTier(uid: string, nextTier: SubscriptionTierType): Promise<void> {
+  assertValidId(uid, 'user');
   if (!ALLOWED_TIERS.includes(nextTier)) {
     throw new Error('Invalid subscription tier.');
   }
@@ -160,11 +179,14 @@ export async function savePhoneLookupRecord(
   tier: SubscriptionTierType,
   webSummary?: string
 ): Promise<string> {
+  assertValidId(uid, 'user');
   const lookupId = buildPhoneLookupId(result.phoneNumber);
+  assertValidId(lookupId, 'lookup');
   const path = `users/${uid}/phoneLookups/${lookupId}`;
   const ref = doc(db, 'users', uid, 'phoneLookups', lookupId);
 
-  const normalizedPhone = clampText(result.phoneNumber, PHONE_PROPS.phoneNumber.maxLength);
+  const rawSanitizedPhone = result.phoneNumber.replace(/[^0-9+()\s-]/g, '').trim();
+  const normalizedPhone = clampText(rawSanitizedPhone, PHONE_PROPS.phoneNumber.maxLength);
   if (!PHONE_REGEX.test(normalizedPhone)) {
     throw new Error('Phone number format does not match schema requirements.');
   }
@@ -185,16 +207,25 @@ export async function savePhoneLookupRecord(
     handleFirestoreError(error, OperationType.GET, path);
   }
 
+  const rawFormatted = clampText(
+    result.formattedNational,
+    PHONE_PROPS.formattedNational.maxLength,
+    normalizedPhone
+  );
+  const formattedNational =
+    rawFormatted.length >= PHONE_PROPS.formattedNational.minLength ? rawFormatted : normalizedPhone;
+
+  const lineType = ALLOWED_LINE_TYPES.includes(result.lineType) ? result.lineType : 'Mobile';
+  const riskLevel = ALLOWED_RISK_LEVELS.includes(result.riskAnalysis.riskLevel)
+    ? result.riskAnalysis.riskLevel
+    : 'Low';
+
   const mutableFields = {
-    formattedNational: clampText(
-      result.formattedNational,
-      PHONE_PROPS.formattedNational.maxLength,
-      normalizedPhone
-    ),
+    formattedNational,
     carrierName: clampText(result.carrier.name, PHONE_PROPS.carrierName.maxLength, 'Unknown Carrier'),
-    lineType: result.lineType,
-    spamScore: Math.max(0, Math.min(100, Math.round(result.riskAnalysis.spamScore))),
-    riskLevel: result.riskAnalysis.riskLevel,
+    lineType,
+    spamScore: clampFiniteInt(result.riskAnalysis.spamScore, 0, 100),
+    riskLevel,
     subscriberPreview,
     ...(cleanWebSummary ? { webSummary: cleanWebSummary } : {}),
     savedAt: serverTimestamp(),
@@ -224,6 +255,8 @@ export async function savePhoneLookupRecord(
 }
 
 export async function removePhoneLookupRecord(uid: string, lookupId: string): Promise<void> {
+  assertValidId(uid, 'user');
+  assertValidId(lookupId, 'lookup');
   const path = `users/${uid}/phoneLookups/${lookupId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'phoneLookups', lookupId));
@@ -236,6 +269,7 @@ export async function saveAlprAuditRecord(
   uid: string,
   audit: VehicleAlprAuditResult
 ): Promise<string> {
+  assertValidId(uid, 'user');
   const cleanPlate = audit.plateNumber.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
   const cleanState = audit.state.trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
 
@@ -244,11 +278,15 @@ export async function saveAlprAuditRecord(
   }
 
   const auditId = buildAlprAuditId(cleanPlate, cleanState);
+  assertValidId(auditId, 'audit');
   const path = `users/${uid}/alprAudits/${auditId}`;
   const ref = doc(db, 'users', uid, 'alprAudits', auditId);
 
   const overallStatus =
-    audit.auditSummary.overallStatus === 'queried_active' ? 'queried_active' : 'passive_scan_only';
+    audit.auditSummary.overallStatus === 'queried_active' ||
+    audit.auditSummary.overallStatus === 'hotlist_flagged'
+      ? 'queried_active'
+      : 'passive_scan_only';
 
   let existingSnap;
   try {
@@ -259,11 +297,8 @@ export async function saveAlprAuditRecord(
 
   const mutableFields = {
     overallStatus,
-    detections30Days: Math.max(0, Math.min(100000, Math.round(audit.auditSummary.totalDetections30Days))),
-    activeQueriesCount: Math.max(
-      0,
-      Math.min(10000, Math.round(audit.auditSummary.activeAgencyQueriesCount))
-    ),
+    detections30Days: clampFiniteInt(audit.auditSummary.totalDetections30Days, 0, 100000),
+    activeQueriesCount: clampFiniteInt(audit.auditSummary.activeAgencyQueriesCount, 0, 10000),
     lastLocation: clampText(
       audit.auditSummary.lastDetectedLocation,
       ALPR_PROPS.lastLocation.maxLength,
@@ -302,6 +337,8 @@ export async function saveAlprAuditRecord(
 }
 
 export async function removeAlprAuditRecord(uid: string, auditId: string): Promise<void> {
+  assertValidId(uid, 'user');
+  assertValidId(auditId, 'audit');
   const path = `users/${uid}/alprAudits/${auditId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'alprAudits', auditId));
@@ -320,7 +357,9 @@ export async function upsertWatchlistItemRecord(
     lastStatus: string;
   }
 ): Promise<string> {
-  const cleanTarget = clampText(input.targetValue, WATCH_PROPS.targetValue.maxLength);
+  assertValidId(uid, 'user');
+  const sanitizedTarget = input.targetValue.replace(/[^A-Za-z0-9+()\s-]/g, '').trim();
+  const cleanTarget = clampText(sanitizedTarget, WATCH_PROPS.targetValue.maxLength);
   if (!TARGET_REGEX.test(cleanTarget)) {
     throw new Error('Watchlist target value contains unsupported characters.');
   }
@@ -334,6 +373,7 @@ export async function upsertWatchlistItemRecord(
   }
 
   const itemId = buildWatchlistId(input.itemType, cleanTarget, cleanState);
+  assertValidId(itemId, 'watchlist item');
   const path = `users/${uid}/watchlist/${itemId}`;
   const ref = doc(db, 'users', uid, 'watchlist', itemId);
 
@@ -385,6 +425,8 @@ export async function updateWatchlistItemRecord(
   label: string,
   lastStatus: string
 ): Promise<void> {
+  assertValidId(uid, 'user');
+  assertValidId(itemId, 'watchlist item');
   const path = `users/${uid}/watchlist/${itemId}`;
   try {
     await updateDoc(doc(db, 'users', uid, 'watchlist', itemId), {
@@ -398,6 +440,8 @@ export async function updateWatchlistItemRecord(
 }
 
 export async function removeWatchlistItemRecord(uid: string, itemId: string): Promise<void> {
+  assertValidId(uid, 'user');
+  assertValidId(itemId, 'watchlist item');
   const path = `users/${uid}/watchlist/${itemId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'watchlist', itemId));
